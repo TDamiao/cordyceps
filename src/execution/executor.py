@@ -17,6 +17,7 @@ from src.execution.rate_limiter import RateLimiter
 from src.config import get_settings
 from src.utils.logging import get_logger
 from src.contracts.ctf import CTFContract, MergeResult
+from src.risk.manager import RiskManager
 
 logger = get_logger(__name__)
 
@@ -86,6 +87,7 @@ class OrderExecutor:
         client: PolymarketClient,
         rate_limiter: Optional[RateLimiter] = None,
         ctf_contract: Optional[CTFContract] = None,
+        risk_manager: Optional[RiskManager] = None,
     ):
         """
         Initialize order executor.
@@ -94,10 +96,12 @@ class OrderExecutor:
             client: Polymarket client for order submission
             rate_limiter: Rate limiter instance
             ctf_contract: CTF contract wrapper for atomic merges
+            risk_manager: Risk manager instance
         """
         self._client = client
         self._rate_limiter = rate_limiter or RateLimiter()
         self._ctf = ctf_contract
+        self._risk = risk_manager or RiskManager()
         self._settings = get_settings()
 
         self._orders_submitted = 0
@@ -139,6 +143,21 @@ class OrderExecutor:
         )
 
         try:
+            # 1. Check Circuit Breaker & Risk Limits
+            can_trade, reason = self._risk.can_trade()
+            if not can_trade:
+                logger.warning("Risk check failed", reason=reason)
+                result.error = f"Risk check failed: {reason}"
+                return result
+
+            # 2. Check Slippage (Price Validity)
+            # Assuming opportunity.prices are [yes_price, no_price]
+            # This is a bit simplistic as token_ids order matters, but for binary it's usually [0,1] or [1,0]
+            if len(opportunity.prices) == 2:
+                if not self._risk.check_slippage(opportunity.prices[0], opportunity.prices[1]):
+                    result.error = "Slippage check failed (spread > 1.0)"
+                    return result
+
             # Submit orders for all tokens simultaneously
             order_tasks = []
             for token_id, price in zip(opportunity.token_ids, opportunity.prices):
@@ -205,8 +224,12 @@ class OrderExecutor:
                     market_id=opportunity.market_id,
                 )
 
+                # Record success (update PnL)
+                self._risk.record_success(result.realized_profit)
+
         except Exception as e:
             result.error = str(e)
+            self._risk.record_failure(str(e))
             logger.error(
                 "Execution failed",
                 market_id=opportunity.market_id,

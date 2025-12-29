@@ -88,6 +88,31 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # Risk Management Settings
+    # =========================================================================
+    max_daily_loss: float = Field(
+        default=50.0,
+        gt=0.0,
+        description="Maximum allowed daily loss in USDC before stopping",
+    )
+    circuit_breaker_failure_threshold: int = Field(
+        default=5,
+        ge=1,
+        description="Number of consecutive failures before pausing trading",
+    )
+    circuit_breaker_cooldown_minutes: int = Field(
+        default=15,
+        ge=1,
+        description="Minutes to pause trading after circuit breaker triggers",
+    )
+    max_slippage_tolerance: float = Field(
+        default=0.02,
+        ge=0.0,
+        le=0.1,
+        description="Maximum slippage tolerance (e.g., 0.02 = 2%)",
+    ) # Not explicitly in plan but useful for slippage check logic
+
+    # =========================================================================
     # Logging
     # =========================================================================
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(

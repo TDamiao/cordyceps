@@ -85,6 +85,10 @@ class ArbitrageBot:
             # Initialize executor with rate limiting
             rate_limiter = RateLimiter()
             
+            # Initialize Risk Manager
+            from src.risk.manager import RiskManager
+            risk_manager = RiskManager()
+            
             # Initialize CTF contract for atomic merge (if enabled)
             ctf_contract = None
             if self._settings.use_atomic_merge:
@@ -109,6 +113,7 @@ class ArbitrageBot:
                 client=self._client,
                 rate_limiter=rate_limiter,
                 ctf_contract=ctf_contract,
+                risk_manager=risk_manager,
             )
 
             # Initialize settlement (only if not dry run)
