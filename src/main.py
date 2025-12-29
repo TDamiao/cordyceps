@@ -136,10 +136,14 @@ class ArbitrageBot:
             # Give WebSocket time to connect
             await asyncio.sleep(1)
 
-            # Subscribe to markets
+            # Collect all tokens for batch subscription
+            all_token_ids = []
+            
             for market in markets[:50]:  # Limit to top 50 markets
-                await self._observer.add_market(market.condition_id, market.token_ids)
+                # Register market in state manager
+                self._observer.state.register_market(market.condition_id, market.token_ids)
                 self._active_markets[market.condition_id] = market.token_ids
+                all_token_ids.extend(market.token_ids)
 
                 # Add to position monitor
                 if self._position_monitor:
@@ -147,6 +151,13 @@ class ArbitrageBot:
                         market.condition_id,
                         market.token_ids,
                     )
+                
+                logger.info("Market registered", condition_id=market.condition_id, tokens=len(market.token_ids))
+
+            # Send ONE subscription for all tokens
+            if all_token_ids:
+                await self._observer._ws.subscribe(all_token_ids)
+                logger.info("Subscribed to all markets", total_tokens=len(all_token_ids))
 
             # Start subsystems
             tasks = [observer_task]
