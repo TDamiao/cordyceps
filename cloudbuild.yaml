@@ -1,0 +1,52 @@
+# Polymarket Arbitrage Bot - GCP Cloud Run Deployment
+# Use: gcloud run deploy --source .
+
+steps:
+  # Build container
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/polymarket-bot:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/polymarket-bot:latest'
+      - '.'
+
+  # Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'gcr.io/$PROJECT_ID/polymarket-bot'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'polymarket-bot'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/polymarket-bot:$COMMIT_SHA'
+      - '--region'
+      - 'asia-east2'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--timeout'
+      - '300'
+      - '--min-instances'
+      - '1'
+      - '--max-instances'
+      - '1'
+
+images:
+  - 'gcr.io/$PROJECT_ID/polymarket-bot:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/polymarket-bot:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

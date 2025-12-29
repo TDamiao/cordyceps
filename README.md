@@ -66,6 +66,28 @@ polymarket-bot/
 └── tests/                 # Test suite
 ```
 
+## Docker Deployment
+
+```bash
+# Build and run locally
+docker compose up -d
+
+# Or build manually
+docker build -t polymarket-bot .
+docker run --env-file .env polymarket-bot
+```
+
+### GCP Cloud Run
+
+```bash
+# Set secrets in GCP Secret Manager
+gcloud secrets create polymarket-private-key --data-file=<(echo -n "$PRIVATE_KEY")
+gcloud secrets create polymarket-proxy-address --data-file=<(echo -n "$PROXY_ADDRESS")
+
+# Deploy via Cloud Build
+gcloud builds submit --config=cloudbuild.yaml
+```
+
 ## Documentation
 
 See [AGENT.md](AGENT.md) for full technical documentation.

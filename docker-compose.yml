@@ -1,0 +1,45 @@
+# Polymarket Arbitrage Bot - Docker Compose
+# For local development and testing
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: polymarket-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - LOG_FORMAT=json
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Persist trade history
+      - ./data:/app/data
+    networks:
+      - botnet
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Local monitoring with Prometheus
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  #   ports:
+  #     - "9090:9090"
+  #   networks:
+  #     - botnet
+
+networks:
+  botnet:
+    driver: bridge
+
+volumes:
+  data:
