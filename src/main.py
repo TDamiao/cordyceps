@@ -84,7 +84,32 @@ class ArbitrageBot:
 
             # Initialize executor with rate limiting
             rate_limiter = RateLimiter()
-            self._executor = OrderExecutor(self._client, rate_limiter)
+            
+            # Initialize CTF contract for atomic merge (if enabled)
+            ctf_contract = None
+            if self._settings.use_atomic_merge:
+                try:
+                    from src.contracts import CTFContract, CTF_ADDRESS
+                    from web3 import Web3
+                    
+                    # Initialize Web3
+                    w3 = Web3(Web3.HTTPProvider(self._settings.polygon_rpc_url))
+                    
+                    ctf_contract = CTFContract(
+                        web3=w3,
+                        private_key=self._settings.private_key,
+                        ctf_address=CTF_ADDRESS,
+                    )
+                    logger.info("Atomic merge enabled with CTF contract")
+                except Exception as e:
+                    logger.error("Failed to initialize CTF contract", error=str(e))
+                    logger.warning("Atomic merge disabled due to initialization error")
+
+            self._executor = OrderExecutor(
+                client=self._client,
+                rate_limiter=rate_limiter,
+                ctf_contract=ctf_contract,
+            )
 
             # Initialize settlement (only if not dry run)
             if not self._settings.dry_run:

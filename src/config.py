@@ -68,6 +68,24 @@ class Settings(BaseSettings):
         default=True,
         description="If True, log trades without executing",
     )
+    
+    # =========================================================================
+    # HFT / Atomic Merge Settings
+    # =========================================================================
+    use_atomic_merge: bool = Field(
+        default=True,
+        description="If True, use mergePositions() for instant profit capture",
+    )
+    max_gas_price_gwei: float = Field(
+        default=100.0,
+        gt=0.0,
+        description="Maximum gas price in gwei for merge transactions",
+    )
+    min_profit_vs_gas_ratio: float = Field(
+        default=2.0,
+        ge=1.0,
+        description="Minimum ratio of profit to gas cost (e.g., 2.0 = profit must be 2x gas)",
+    )
 
     # =========================================================================
     # Logging
