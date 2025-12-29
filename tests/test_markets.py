@@ -230,20 +230,20 @@ class TestMarketFetcher:
 
         fetcher = MarketFetcher()
 
+        # Use Gamma API format (camelCase, clobTokenIds as JSON string)
         data = {
-            "condition_id": "cond_123",
-            "question_id": "q_123",
+            "conditionId": "cond_123",
+            "questionID": "q_123",
             "question": "Will it rain?",
             "slug": "rain",
-            "tokens": [
-                {"token_id": "yes_id", "outcome": "Yes", "price": "0.55"},
-                {"token_id": "no_id", "outcome": "No", "price": "0.45"},
-            ],
+            "clobTokenIds": '["yes_id", "no_id"]',  # JSON string
+            "outcomes": ["Yes", "No"],
+            "outcomePrices": "0.55, 0.45",
             "active": True,
             "closed": False,
-            "volume": "10000",
-            "liquidity": "5000",
-            "neg_risk": False,
+            "volumeNum": 10000,
+            "liquidityNum": 5000,
+            "negRisk": False,
         }
 
         market = fetcher._parse_market(data)
@@ -262,11 +262,12 @@ class TestMarketFetcher:
         fetcher = MarketFetcher()
 
         data = {
-            "condition_id": "cond_123",
-            "question_id": "q_123",
+            "conditionId": "cond_123",
+            "questionID": "q_123",
             "question": "Empty market?",
             "slug": "empty",
-            "tokens": [],
+            "clobTokenIds": "[]",  # Empty JSON array
+            "outcomes": [],
         }
 
         market = fetcher._parse_market(data)

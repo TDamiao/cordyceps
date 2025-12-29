@@ -122,7 +122,7 @@ class Endpoints:
 
     # CLOB API
     CLOB_HOST = "https://clob.polymarket.com"
-    CLOB_WS = "wss://ws-subscriptions.polymarket.com/ws/"
+    CLOB_WS = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
     # Gamma Markets API
     GAMMA_API = "https://gamma-api.polymarket.com"

@@ -178,9 +178,11 @@ class WebSocketClient:
         if not self._ws:
             return
 
+        # Correct format: type=subscribe, channel=market, assets_ids=[...]
         message = {
-            "type": subscription.channel,
-            "assets_ids": subscription.asset_ids,  # Note: API uses assets_ids (plural)
+            "type": "subscribe",
+            "channel": subscription.channel,
+            "assets_ids": subscription.asset_ids,
         }
 
         await self._ws.send(json.dumps(message))
@@ -234,15 +236,32 @@ class WebSocketClient:
             except Exception as e:
                 logger.error("Error processing message", error=str(e))
 
-    async def _process_message(self, data: dict) -> None:
+    async def _process_message(self, data: Any) -> None:
         """
         Process a received message.
 
         Args:
-            data: Parsed JSON message
+            data: Parsed JSON message (could be dict or list)
         """
-        msg_type = data.get("event_type") or data.get("type", "unknown")
+        # Handle list of updates (initial book snapshot comes as array)
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    if self.on_message:
+                        self.on_message(item)
+            return
 
+        # Handle string error messages
+        if isinstance(data, str):
+            logger.warning("Received string message", message=data[:100])
+            return
+
+        # Handle dict messages
+        if not isinstance(data, dict):
+            logger.warning("Unexpected message type", type=type(data).__name__)
+            return
+
+        msg_type = data.get("event_type") or data.get("type", "unknown")
         logger.debug("Received message", type=msg_type)
 
         if self.on_message:
@@ -363,15 +382,25 @@ class MarketWebSocket:
         """Handle disconnection event."""
         logger.warning("MarketWebSocket disconnected")
 
-    def _handle_message(self, data: dict) -> None:
+    def _handle_message(self, data: Any) -> None:
         """
         Route incoming messages to appropriate handlers.
 
         Args:
-            data: Parsed message data
+            data: Parsed message data (should be dict)
         """
+        if not isinstance(data, dict):
+            return
+
         event_type = data.get("event_type", "")
         asset_id = data.get("asset_id", "")
+
+        # Handle initial book snapshot (no event_type)
+        if not event_type and "market" in data and "bids" in data:
+            asset_id = data.get("asset_id", "")
+            if self.on_book_update and asset_id:
+                self.on_book_update(asset_id, data)
+            return
 
         if event_type == "book":
             if self.on_book_update:
@@ -390,4 +419,4 @@ class MarketWebSocket:
             pass
 
         else:
-            logger.debug("Unknown event type", event_type=event_type)
+            logger.debug("Unknown event type", event_type=event_type, keys=list(data.keys())[:5])

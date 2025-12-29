@@ -287,35 +287,65 @@ class MarketFetcher:
             MarketInfo or None if parsing fails
         """
         try:
-            # Extract tokens
+            # Gamma API uses camelCase field names
+            condition_id = data.get("conditionId", "")
+            if not condition_id:
+                return None
+
+            # Extract tokens from clobTokenIds and outcomes
             tokens = []
-            for token_data in data.get("tokens", []):
+            clob_token_ids_raw = data.get("clobTokenIds", "")
+            outcomes = data.get("outcomes", [])
+            outcome_prices = data.get("outcomePrices", "")
+
+            # Parse clobTokenIds - it's a JSON string like '["token1", "token2"]'
+            import json
+            if isinstance(clob_token_ids_raw, str) and clob_token_ids_raw:
+                try:
+                    clob_token_ids = json.loads(clob_token_ids_raw)
+                except json.JSONDecodeError:
+                    clob_token_ids = []
+            elif isinstance(clob_token_ids_raw, list):
+                clob_token_ids = clob_token_ids_raw
+            else:
+                clob_token_ids = []
+
+            # Parse prices (comma-separated string)
+            prices = []
+            if outcome_prices:
+                try:
+                    prices = [Decimal(p.strip()) for p in outcome_prices.split(",")]
+                except:
+                    prices = []
+
+            for i, token_id in enumerate(clob_token_ids):
+                outcome = outcomes[i] if i < len(outcomes) else f"Outcome {i}"
+                price = prices[i] if i < len(prices) else None
+
                 token = Token(
-                    token_id=token_data.get("token_id", ""),
-                    outcome=token_data.get("outcome", ""),
-                    price=Decimal(str(token_data.get("price", 0))) if token_data.get("price") else None,
-                    winner=token_data.get("winner"),
+                    token_id=token_id,
+                    outcome=outcome,
+                    price=price,
+                    winner=None,
                 )
-                if token.token_id:
-                    tokens.append(token)
+                tokens.append(token)
 
             if not tokens:
-                logger.debug("Market has no tokens", condition_id=data.get("condition_id"))
                 return None
 
             # Build market info
             market = MarketInfo(
-                condition_id=data.get("condition_id", ""),
-                question_id=data.get("question_id", ""),
+                condition_id=condition_id,
+                question_id=data.get("questionID", ""),
                 question=data.get("question", ""),
                 slug=data.get("slug", ""),
                 tokens=tokens,
-                end_date=data.get("end_date_iso"),
+                end_date=data.get("endDateIso"),
                 active=data.get("active", True),
                 closed=data.get("closed", False),
-                volume=Decimal(str(data.get("volume", 0))),
-                liquidity=Decimal(str(data.get("liquidity", 0))),
-                neg_risk=data.get("neg_risk", False),
+                volume=Decimal(str(data.get("volumeNum", 0) or 0)),
+                liquidity=Decimal(str(data.get("liquidityNum", 0) or 0)),
+                neg_risk=data.get("negRisk", False),
             )
 
             return market

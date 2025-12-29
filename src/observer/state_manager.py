@@ -170,7 +170,14 @@ class StateManager:
 
                 # Check if market is complete and notify
                 if market.is_complete and self.on_arb_opportunity:
-                    self.on_arb_opportunity(condition_id, market.order_books.copy())
+                    # Schedule async callback properly
+                    import asyncio
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(self.on_arb_opportunity(condition_id, market.order_books.copy()))
+                    except RuntimeError:
+                        # No event loop, skip async callback
+                        pass
 
             # Notify book update callback
             if self.on_book_update:

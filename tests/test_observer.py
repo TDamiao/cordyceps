@@ -95,13 +95,15 @@ class TestStateManager:
 
         assert len(callback_called) == 0
 
-    def test_market_is_complete(self):
+    @pytest.mark.asyncio
+    async def test_market_is_complete(self):
         """Test market completeness detection."""
         from src.observer.state_manager import StateManager
+        import asyncio
 
         opportunity_data = {}
 
-        def on_opportunity(condition_id, books):
+        async def on_opportunity(condition_id, books):
             opportunity_data["condition_id"] = condition_id
             opportunity_data["books"] = books
 
@@ -113,6 +115,7 @@ class TestStateManager:
             "bids": [{"price": "0.45", "size": "100"}],
             "asks": [{"price": "0.47", "size": "100"}],
         })
+        await asyncio.sleep(0.01)  # Allow task to run
         assert "condition_id" not in opportunity_data
 
         # Second update - now complete
@@ -120,6 +123,7 @@ class TestStateManager:
             "bids": [{"price": "0.50", "size": "100"}],
             "asks": [{"price": "0.52", "size": "100"}],
         })
+        await asyncio.sleep(0.01)  # Allow task to run
         assert opportunity_data["condition_id"] == "cond_123"
         assert len(opportunity_data["books"]) == 2
 

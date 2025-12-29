@@ -11,14 +11,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from src.client import PolymarketClient, create_authenticated_client
+from src.client import PolymarketClient, authenticate
 from src.config import get_settings
 from src.engine import ArbitrageEngine, ArbitrageOpportunity
 from src.execution import OrderExecutor, RateLimiter
 from src.markets import MarketFetcher
 from src.observer import MarketObserver
 from src.settlement import SettlementAgent, PositionMonitor
-from src.utils.logging import get_logger, configure_logging
+from src.utils.logging import get_logger, setup_logging
 from src.utils.metrics import MetricsTracker, HealthMonitor
 
 logger = get_logger(__name__)
@@ -38,7 +38,7 @@ class ArbitrageBot:
     def __init__(self):
         """Initialize the arbitrage bot."""
         self._settings = get_settings()
-        configure_logging()
+        setup_logging()
 
         # Initialize components
         self._client: Optional[PolymarketClient] = None
@@ -73,14 +73,8 @@ class ArbitrageBot:
             logger.info("Initializing arbitrage bot...")
 
             # Create authenticated client
-            auth_result = create_authenticated_client(
-                private_key=self._settings.private_key,
-                proxy_address=self._settings.proxy_address,
-            )
-            self._client = PolymarketClient(
-                auth_result.client,
-                dry_run=self._settings.dry_run,
-            )
+            auth_result = authenticate()
+            self._client = PolymarketClient(auth_result)
 
             # Initialize observer with callbacks
             self._observer = MarketObserver(
@@ -104,7 +98,7 @@ class ArbitrageBot:
 
             logger.info(
                 "Bot initialized",
-                address=auth_result.address,
+                address=auth_result.eoa_address,
                 dry_run=self._settings.dry_run,
             )
             return True
@@ -126,9 +120,8 @@ class ArbitrageBot:
             # Fetch active markets
             logger.info("Fetching active markets...")
             markets = await self._fetcher.fetch_markets(
-                active_only=True,
+                active_only=False,  # Include all markets for now
                 binary_only=True,
-                min_liquidity=float(self._settings.min_profit_threshold * 1000),
             )
 
             if not markets:
@@ -137,12 +130,15 @@ class ArbitrageBot:
 
             logger.info("Found active markets", count=len(markets))
 
+            # Start observer first before subscribing
+            observer_task = asyncio.create_task(self._run_observer())
+            
+            # Give WebSocket time to connect
+            await asyncio.sleep(1)
+
             # Subscribe to markets
             for market in markets[:50]:  # Limit to top 50 markets
-                await self._observer.add_market(
-                    market.condition_id,
-                    market.token_ids,
-                )
+                await self._observer.add_market(market.condition_id, market.token_ids)
                 self._active_markets[market.condition_id] = market.token_ids
 
                 # Add to position monitor
@@ -153,9 +149,7 @@ class ArbitrageBot:
                     )
 
             # Start subsystems
-            tasks = [
-                asyncio.create_task(self._run_observer()),
-            ]
+            tasks = [observer_task]
 
             if self._position_monitor:
                 tasks.append(asyncio.create_task(self._position_monitor.start()))
