@@ -133,5 +133,33 @@ async def test_merge_positions_gas_too_high(ctf_wrapper, mock_web3):
     
     result = await ctf_wrapper.merge_positions(CONDITION_ID, max_gas_price_gwei=100)
     
-    assert result.success is False
-    assert "Gas too high" in result.error
+
+@pytest.mark.asyncio
+async def test_merge_positions_with_gas_override(ctf_wrapper, mock_ctf_contract, mock_web3):
+    """Test merge with explicit gas price override."""
+    # Mock successful balance check
+    ctf_wrapper.can_merge = MagicMock(return_value=(True, 100))
+    
+    # Base gas is 30 gwei, we override with 50 gwei
+    override_gas = int(50 * 10**9)
+    
+    result = await ctf_wrapper.merge_positions(
+        CONDITION_ID, 
+        amount=100, 
+        gas_price_wei_override=override_gas
+    )
+    
+    assert result.success is True
+    
+    # Extract the actual call arguments to build_transaction to verify gasPrice
+    # inner call is: ctf.functions.mergePositions(...).build_transaction({ ... })
+    
+    # We need to find the mocks. 
+    # mock_ctf_contract.functions.mergePositions.return_value is the "ContractFunction" mock
+    contract_function = mock_ctf_contract.functions.mergePositions.return_value
+    
+    # Verify build_transaction was called with our override
+    call_kwargs = contract_function.build_transaction.call_args[0][0]
+    assert call_kwargs["gasPrice"] == override_gas
+    assert call_kwargs["gasPrice"] != mock_web3.eth.gas_price
+

@@ -103,6 +103,7 @@ class ArbitrageBot:
                         web3=w3,
                         private_key=self._settings.private_key,
                         ctf_address=CTF_ADDRESS,
+                        proxy_address=self._settings.proxy_address,
                     )
                     logger.info("Atomic merge enabled with CTF contract")
                 except Exception as e:
