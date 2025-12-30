@@ -262,32 +262,69 @@ class OrderExecutor:
         # We need to convert to raw integer for the contract. 
         # Since Polymarket uses USDC (6 decimals), 1 share = 10^6 base units.
         
+        # Prepare retry loop
+        max_retries = 3
+        
         try:
             # Assuming filled_size is e.g. 10.5 (shares/USDC)
             # CTF expects raw integer.
             merge_amount_raw = int(result.total_filled * Decimal("1000000"))
             
-            merge_res = await self._ctf.merge_positions(
-                condition_id=condition_id,
-                amount=merge_amount_raw,
-                max_gas_price_gwei=self._settings.max_gas_price_gwei,
-            )
-            
-            result.merge_result = merge_res
-            
-            if merge_res.success:
-                logger.info(
-                    "Atomic merge successful!",
-                    tx_hash=merge_res.tx_hash,
-                    returned_usdc=str(merge_res.amount_returned)
+            for attempt in range(1, max_retries + 1):
+                # Calculate gas price override (boost) for retries
+                gas_price_override = None
+                if attempt > 1:
+                    # Fetch current gas price and boost it
+                    try:
+                        base_gas = self._ctf.w3.eth.gas_price
+                        multiplier = 1.0 + (0.2 * (attempt - 1)) # 1.2x, 1.4x
+                        gas_price_override = int(base_gas * multiplier)
+                        logger.info(
+                            "boosting gas for retry",
+                            attempt=attempt,
+                            multiplier=multiplier,
+                            new_gas_gwei=gas_price_override / 1e9
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to estimate gas for boost", error=str(e))
+                
+                merge_res = await self._ctf.merge_positions(
+                    condition_id=condition_id,
+                    amount=merge_amount_raw,
+                    max_gas_price_gwei=self._settings.max_gas_price_gwei,
+                    gas_price_wei_override=gas_price_override,
                 )
-                # Recalculate true profit after gas
-                # Note: We need gas cost in USDC to be precise, 
-                # but for now realized_profit is gross profit.
-            else:
-                logger.error("Atomic merge failed", error=merge_res.error)
-                # Don't fail the whole execution result, as we still hold the positions
-                # We can retry merge later or hold to settlement
+                
+                if merge_res.success:
+                    result.merge_result = merge_res
+                    logger.info(
+                        "Atomic merge successful!",
+                        tx_hash=merge_res.tx_hash,
+                        returned_usdc=str(merge_res.amount_returned),
+                        attempt=attempt
+                    )
+                    return # Success! Exit loop
+
+                # If failed
+                logger.warning(
+                    "Atomic merge failed", 
+                    attempt=attempt, 
+                    error=merge_res.error
+                )
+                
+                if attempt < max_retries:
+                    wait_time = 1.5 * attempt
+                    logger.info(f"Retrying merge in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+            
+            # If all retries failed
+            logger.error(
+                "CRITICAL: Atomic merge failed after all retries",
+                condition_id=condition_id,
+                final_error=merge_res.error
+            )
+            # Don't fail the whole execution result, as we still hold the positions
+            # We can retry merge later or hold to settlement
                 
         except Exception as e:
             logger.error("Error in atomic merge process", error=str(e))

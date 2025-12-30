@@ -268,6 +268,7 @@ class CTFContract:
         condition_id: str,
         amount: Optional[int] = None,
         max_gas_price_gwei: float = 100,
+        gas_price_wei_override: Optional[int] = None,
     ) -> MergeResult:
         """
         Merge YES+NO positions back to USDC.
@@ -279,6 +280,7 @@ class CTFContract:
             condition_id: Market condition ID
             amount: Amount to merge (None = max available)
             max_gas_price_gwei: Maximum gas price to use
+            gas_price_wei_override: Explicit gas price to use (for retries)
             
         Returns:
             MergeResult with transaction details
@@ -302,8 +304,12 @@ class CTFContract:
                     error=f"Insufficient balance: requested {merge_amount}, have {max_amount}",
                 )
             
-            # Check gas price
-            gas_price = self.w3.eth.gas_price
+            # Determine gas price
+            if gas_price_wei_override:
+                gas_price = gas_price_wei_override
+            else:
+                gas_price = self.w3.eth.gas_price
+
             max_gas_wei = self.w3.to_wei(max_gas_price_gwei, "gwei")
             
             if gas_price > max_gas_wei:
