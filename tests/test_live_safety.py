@@ -13,7 +13,13 @@ from src.engine.detector import ArbitrageOpportunity, SignalType
 from src.execution.executor import ExecutionState, OrderExecutor
 from src.fees import FeeParameters, calculate_taker_fee
 from src.runtime import RuntimeState
-from src.safety import GeoblockResult, GeoblockService, ReadinessService, WalletSnapshot
+from src.safety import (
+    GeoblockResult,
+    GeoblockService,
+    ReadinessService,
+    WalletService,
+    WalletSnapshot,
+)
 
 
 def settings(tmp_path, **values) -> Settings:
@@ -109,6 +115,27 @@ class TestRuntimeSafety:
         runtime.kill()
         assert runtime.armed is False
         assert runtime.can_submit_live() == (False, "live trading is disarmed")
+
+
+class TestWalletService:
+    def test_clob_values_are_always_six_decimal_raw_units(self, tmp_path):
+        wallet = WalletService(settings(tmp_path))
+        assert wallet._units("10000000") == 10
+        assert wallet._units("100000") == 0.1
+        assert wallet._units("1") == 0.000001
+
+    @pytest.mark.asyncio
+    async def test_uses_pusd_onchain_when_proxy_clob_lookup_returns_false_zero(self, tmp_path):
+        client = MagicMock()
+        client.get_balance_allowance.return_value = {"balance": "0", "allowance": "0"}
+        wallet = WalletService(settings(tmp_path), client)
+        wallet._fetch_onchain_balance = AsyncMock(return_value=(10.0, 20.0))
+
+        snapshot = await wallet.refresh()
+
+        assert snapshot.collateral_balance == 10
+        assert snapshot.collateral_allowance == 20
+        wallet._fetch_onchain_balance.assert_awaited_once_with(wallet.settings.proxy_address)
 
 
 class TestLegExecution:

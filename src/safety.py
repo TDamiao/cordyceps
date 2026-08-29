@@ -14,7 +14,7 @@ from sqlmodel import Session
 from web3 import Web3
 
 from src.client.auth import derive_eoa_address
-from src.config import Settings
+from src.config import Contracts, Settings
 from src.database import get_engine
 from src.runtime import RuntimeState
 
@@ -101,12 +101,10 @@ class WalletService:
 
     @staticmethod
     def _units(value: Any) -> float:
+        """Convert the CLOB's 6-decimal raw collateral units to pUSD."""
         try:
-            val = float(value or 0)
-            if val > 100_000:
-                return val / 1_000_000
-            return val
-        except Exception:
+            return int(str(value or "0")) / 1_000_000
+        except (TypeError, ValueError):
             return 0.0
 
     async def _fetch_onchain_balance(self, address: str) -> tuple[float, float]:
@@ -119,13 +117,13 @@ class WalletService:
                     {"constant": True, "inputs": [{"name": "_owner", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}], "type": "function"},
                     {"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "remaining", "type": "uint256"}], "type": "function"},
                 ]
-                tokens = [
-                    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",  # USDC.e
-                    "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",  # USDC Native
-                ]
+                # CLOB V2 collateral is pUSD. Reading USDC.e/native here makes
+                # funded V2 proxy wallets appear empty whenever the CLOB API's
+                # proxy balance lookup returns its known false zero.
+                tokens = [Contracts.PUSD]
                 spenders = [
-                    "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E",  # CTF Exchange V1
-                    "0xCD504f46C7E229bB958BDE1d5a71147779fE963E",  # Neg Risk Adapter
+                    "0xE111180000d2663C0091e4f400237545B87B996B",  # CTF Exchange V2
+                    "0xe2222d279d744050d28e00520010520000310F59",  # Neg Risk Exchange V2
                 ]
                 total_bal = 0.0
                 max_allowance = 0.0
