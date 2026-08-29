@@ -395,6 +395,12 @@ body {
 .check-box-status.blocked { color: var(--red); }
 .check-box-status.warning { color: var(--amber); }
 
+.check-box-detail {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 /* Config Grid */
 .config-grid {
   display: grid;

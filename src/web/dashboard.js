@@ -25,6 +25,11 @@ async function api(path, options = {}) {
 // Formatadores
 const fmt = (v, d = 2) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: d }));
 const money = (v) => (v === null || v === undefined ? "—" : `$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`);
+const allowance = (v, unlimited = false) => {
+  if (v === null || v === undefined) return "—";
+  if (unlimited || Number(v) >= 1e12) return "∞ ILIMITADA";
+  return money(v);
+};
 const pct = (v) => (v === null || v === undefined ? "—" : `${(Number(v) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}%`);
 const shortAddr = (addr) => (addr && addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr || "Não configurado");
 
@@ -103,7 +108,12 @@ async function loadStatus() {
     metric("Conta Signer (EOA)", shortAddr(w.eoa_address), w.eoa_address ? "" : "blocked", w.eoa_address) +
     metric("Carteira Proxy", shortAddr(w.proxy_address), "", w.proxy_address) +
     metric("Saldo Disponível", money(w.usdc_balance), w.usdc_balance > 0 ? "ok" : "warning") +
-    metric("Aprovação (Allowance)", money(w.exchange_allowance), w.exchange_allowance > 0 ? "ok" : "warning") +
+    metric(
+      "Permissão de Compra",
+      allowance(w.exchange_allowance, w.exchange_allowance_unlimited),
+      w.exchange_allowance > 0 ? "ok" : "warning",
+      "Allowance é um limite de gasto autorizado ao contrato; não é saldo."
+    ) +
     metric("Autenticação CLOB", w.authenticated ? "AUTORIZADO" : "NÃO AUTORIZADO", w.authenticated ? "ok" : "blocked") +
     metric("Última Leitura", w.last_refresh ? new Date(w.last_refresh * 1000).toLocaleTimeString("pt-BR") : "—");
 
@@ -189,9 +199,11 @@ const CHECK_TRANSLATIONS = {
   proxy_address: "Endereço Proxy Configurado",
   clob_authentication: "Autenticação L2 CLOB",
   polygon_rpc: "Conexão RPC Rede Polygon",
-  balance: "Saldo em Carteira (USDC)",
-  usdc_allowance: "Aprovação de Saldo (Allowance)",
-  ctf_allowance: "Aprovação de Contratos CTF",
+  balance: "Saldo em Carteira (pUSD)",
+  usdc_allowance: "Permissão de Compra (pUSD)",
+  ctf_allowance: "Permissão de Venda (CTF)",
+  buy_capability: "Capacidade Real de Comprar",
+  sell_capability: "Capacidade de Vender Tokens",
   geographic_eligibility: "Permissão Geográfica",
   kill_switch: "Chave de Emergência Desativada",
   risk_configuration: "Configuração de Risco Consistente",
@@ -217,6 +229,7 @@ async function runReadiness() {
         <span class="check-box-status ${v.status === "ok" ? "ok" : v.status === "warning" ? "warning" : "blocked"}">
           ${v.status === "ok" ? "✔ APROVADO" : v.status === "warning" ? "⚠️ ALERTA" : "✖ BLOQUEADO"}
         </span>
+        ${v.detail ? `<small class="check-box-detail">${v.detail}</small>` : ""}
       </div>
     `)
     .join("");

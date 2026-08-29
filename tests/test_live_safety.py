@@ -130,12 +130,47 @@ class TestWalletService:
         client.get_balance_allowance.return_value = {"balance": "0", "allowance": "0"}
         wallet = WalletService(settings(tmp_path), client)
         wallet._fetch_onchain_balance = AsyncMock(return_value=(10.0, 20.0))
+        wallet._fetch_onchain_ctf_approval = AsyncMock(return_value=False)
 
         snapshot = await wallet.refresh()
 
         assert snapshot.collateral_balance == 10
         assert snapshot.collateral_allowance == 20
         wallet._fetch_onchain_balance.assert_awaited_once_with(wallet.settings.proxy_address)
+
+    @pytest.mark.asyncio
+    async def test_reads_conditional_approval_for_sell_capability(self, tmp_path):
+        client = MagicMock()
+        client.get_balance_allowance.side_effect = [
+            {"balance": "10000000", "allowance": "20000000"},
+            {"balance": "3000000", "allowance": "40000000"},
+        ]
+        wallet = WalletService(settings(tmp_path), client)
+        wallet._fetch_onchain_ctf_approval = AsyncMock(return_value=False)
+
+        snapshot = await wallet.refresh(["yes-token"])
+
+        assert snapshot.ctf_balances == {"yes-token": 3}
+        assert snapshot.ctf_allowance == 40
+        assert snapshot.ctf_allowance_unlimited is False
+
+    def test_uint256_max_allowance_is_labeled_unlimited(self, tmp_path):
+        wallet = WalletService(settings(tmp_path))
+        value = wallet._allowance_units(str(2**256 - 1))
+
+        assert value >= wallet.UNLIMITED_ALLOWANCE
+
+    @pytest.mark.asyncio
+    async def test_configured_client_without_l2_response_is_not_authenticated(self, tmp_path):
+        client = MagicMock()
+        client.get_balance_allowance.return_value = {}
+        wallet = WalletService(settings(tmp_path), client)
+        wallet._fetch_onchain_balance = AsyncMock(return_value=(10.0, 20.0))
+        wallet._fetch_onchain_ctf_approval = AsyncMock(return_value=True)
+
+        snapshot = await wallet.refresh(["yes-token"])
+
+        assert snapshot.authenticated is False
 
 
 class TestLegExecution:
@@ -227,6 +262,44 @@ async def test_readiness_is_fail_closed_and_never_returns_secrets(tmp_path):
     serialized = str(result) + str(wallet.snapshot.public_dict())
     assert cfg.private_key not in serialized
     assert "server-secret" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_readiness_blocks_when_buy_or_sell_funding_is_not_proven(tmp_path):
+    cfg = settings(tmp_path)
+    runtime = RuntimeState(cfg, armed=False)
+    geoblock = MagicMock()
+    geoblock.check = AsyncMock(
+        return_value=GeoblockResult(checked=True, blocked=False, country="BR")
+    )
+    wallet = MagicMock()
+    wallet.snapshot = WalletSnapshot(
+        eoa_address="0x" + "a" * 40,
+        proxy_address=cfg.proxy_address,
+        collateral_balance=0,
+        collateral_allowance=0,
+        ctf_allowance=None,
+        authenticated=True,
+        refreshed_at=time.time(),
+    )
+    bot = MagicMock()
+    bot.get_status.return_value = {
+        "health": {"websocket_connected": True},
+        "observer_stats": {"book_updates": 5, "books_with_liquidity": 2},
+        "risk": {"is_paused": False},
+    }
+    service = ReadinessService(runtime, geoblock, wallet, bot)
+    with (
+        patch.object(service, "_http_ok", AsyncMock(return_value=True)),
+        patch("src.safety.Web3") as web3,
+    ):
+        web3.return_value.is_connected.return_value = True
+        result = await service.check()
+
+    assert result["ready"] is False
+    assert result["checks"]["balance"]["status"] == "blocked"
+    assert result["checks"]["buy_capability"]["status"] == "blocked"
+    assert result["checks"]["sell_capability"]["status"] == "blocked"
 
 
 def test_geoblock_disabled_allows_trading(tmp_path):

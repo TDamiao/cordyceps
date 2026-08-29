@@ -69,8 +69,10 @@ class WalletSnapshot:
     proxy_address: str = ""
     collateral_balance: float | None = None
     collateral_allowance: float | None = None
+    collateral_allowance_unlimited: bool = False
     ctf_balances: dict[str, float] = field(default_factory=dict)
     ctf_allowance: float | None = None
+    ctf_allowance_unlimited: bool = False
     authenticated: bool = False
     error: str = ""
     refreshed_at: float = 0
@@ -83,8 +85,10 @@ class WalletSnapshot:
             "collateral": "pUSD",
             "usdc_allowance": self.collateral_allowance,
             "exchange_allowance": self.collateral_allowance,
+            "exchange_allowance_unlimited": self.collateral_allowance_unlimited,
             "ctf_balances": self.ctf_balances,
             "ctf_allowance": self.ctf_allowance,
+            "ctf_allowance_unlimited": self.ctf_allowance_unlimited,
             "authenticated": self.authenticated,
             "private_key_configured": bool(self.eoa_address),
             "clob_credentials_configured": self.authenticated,
@@ -94,6 +98,11 @@ class WalletSnapshot:
 
 
 class WalletService:
+    # Protocol approvals are commonly set to uint256 max. After the token's
+    # 6-decimal conversion, any value above this threshold is operationally
+    # unlimited and must not be presented as wallet money.
+    UNLIMITED_ALLOWANCE = 1_000_000_000_000.0
+
     def __init__(self, settings: Settings, client: Any = None):
         self.settings = settings
         self.client = client
@@ -106,6 +115,17 @@ class WalletService:
             return int(str(value or "0")) / 1_000_000
         except (TypeError, ValueError):
             return 0.0
+
+    @classmethod
+    def _allowance_units(cls, payload: Any) -> float:
+        """Return the strictest exchange allowance from a CLOB response."""
+        if isinstance(payload, dict) and payload:
+            return min((cls._units(value) for value in payload.values()), default=0.0)
+        if isinstance(payload, list) and payload:
+            return min((cls._units(value) for value in payload), default=0.0)
+        if isinstance(payload, (int, float, str)):
+            return cls._units(payload)
+        return 0.0
 
     async def _fetch_onchain_balance(self, address: str) -> tuple[float, float]:
         def _check():
@@ -141,7 +161,7 @@ class WalletService:
                     "0xe2222d279d744050d28e00520010520000310F59",  # Neg Risk Exchange V2
                 ]
                 total_bal = 0.0
-                max_allowance = 0.0
+                allowances: list[float] = []
                 for token_addr in tokens:
                     c = w3.eth.contract(address=Web3.to_checksum_address(token_addr), abi=abi)
                     bal = c.functions.balanceOf(target).call() / 1e6
@@ -151,11 +171,47 @@ class WalletService:
                             c.functions.allowance(target, Web3.to_checksum_address(spender)).call()
                             / 1e6
                         )
-                        if alw > max_allowance:
-                            max_allowance = alw
-                return total_bal, max_allowance
+                        allowances.append(alw)
+                # Both regular and neg-risk markets are monitored. Requiring
+                # the smallest allowance prevents one approved exchange from
+                # hiding another exchange that cannot spend collateral.
+                return total_bal, min(allowances, default=0.0)
             except Exception:
                 return 0.0, 0.0
+
+        return await asyncio.to_thread(_check)
+
+    async def _fetch_onchain_ctf_approval(self, address: str) -> bool:
+        """Check the ERC-1155 operator approvals required to sell outcomes."""
+
+        def _check() -> bool:
+            try:
+                rpc_url = self.settings.polygon_rpc_url or "https://polygon-bor-rpc.publicnode.com"
+                w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 5}))
+                target = Web3.to_checksum_address(address)
+                abi = [
+                    {
+                        "constant": True,
+                        "inputs": [
+                            {"name": "account", "type": "address"},
+                            {"name": "operator", "type": "address"},
+                        ],
+                        "name": "isApprovedForAll",
+                        "outputs": [{"name": "", "type": "bool"}],
+                        "type": "function",
+                    }
+                ]
+                ctf = w3.eth.contract(address=Web3.to_checksum_address(Contracts.CTF), abi=abi)
+                spenders = [
+                    "0xE111180000d2663C0091e4f400237545B87B996B",
+                    "0xe2222d279d744050d28e00520010520000310F59",
+                ]
+                return all(
+                    ctf.functions.isApprovedForAll(target, Web3.to_checksum_address(spender)).call()
+                    for spender in spenders
+                )
+            except Exception:
+                return False
 
         return await asyncio.to_thread(_check)
 
@@ -163,9 +219,6 @@ class WalletService:
         snap = WalletSnapshot(proxy_address=self.settings.proxy_address, refreshed_at=time.time())
         if self.settings.private_key:
             snap.eoa_address = derive_eoa_address(self.settings.private_key)
-
-        if self.client is not None:
-            snap.authenticated = True
 
         try:
             if self.client is None:
@@ -180,15 +233,25 @@ class WalletService:
 
             clob_bal = self._units(collateral.get("balance")) if collateral else 0.0
             allowances = collateral.get("allowances") or collateral.get("allowance") or {}
+            clob_allowance = self._allowance_units(allowances)
 
-            if isinstance(allowances, dict) and allowances:
-                clob_allowance = min((self._units(v) for v in allowances.values()), default=0.0)
-            elif isinstance(allowances, (int, float, str)):
-                clob_allowance = self._units(allowances)
-            elif isinstance(allowances, list) and allowances:
-                clob_allowance = min((self._units(v) for v in allowances), default=0.0)
-            else:
-                clob_allowance = 0.0
+            # Conditional-token approval is what authorizes SELL orders. The
+            # ERC-1155 approval is global, so one tracked token is sufficient
+            # to verify it through the CLOB endpoint without issuing a request
+            # for every market on each readiness run.
+            ctf_allowance: float | None = None
+            if token_ids:
+                try:
+                    conditional = await asyncio.to_thread(
+                        self.client.get_balance_allowance, token_ids[0]
+                    )
+                    if conditional:
+                        snap.ctf_balances[token_ids[0]] = self._units(conditional.get("balance"))
+                        ctf_allowance = self._allowance_units(
+                            conditional.get("allowances") or conditional.get("allowance") or {}
+                        )
+                except Exception as exc:
+                    logger.warning("CLOB conditional allowance error", error=str(exc))
 
             # Fallback to on-chain Polygon check if CLOB returns 0
             target_address = self.settings.proxy_address or snap.eoa_address
@@ -204,14 +267,31 @@ class WalletService:
                 except Exception:
                     pass
 
+            if target_address and not ctf_allowance:
+                try:
+                    if await self._fetch_onchain_ctf_approval(target_address):
+                        # ERC-1155 approval-for-all has no monetary amount.
+                        # Use an operational sentinel and label it accordingly.
+                        ctf_allowance = self.UNLIMITED_ALLOWANCE
+                except Exception:
+                    pass
+
             snap.collateral_balance = clob_bal
             snap.collateral_allowance = clob_allowance
-            snap.authenticated = True
+            snap.collateral_allowance_unlimited = clob_allowance >= self.UNLIMITED_ALLOWANCE
+            snap.ctf_allowance = ctf_allowance
+            snap.ctf_allowance_unlimited = bool(
+                ctf_allowance is not None and ctf_allowance >= self.UNLIMITED_ALLOWANCE
+            )
+            # A configured client is not proof of L2 authentication. A real
+            # response (including an explicit zero balance) is.
+            snap.authenticated = bool(collateral)
             logger.info(
                 "wallet.refreshed",
                 raw_collateral=collateral,
                 balance=clob_bal,
                 allowance=clob_allowance,
+                ctf_allowance=ctf_allowance,
             )
         except Exception as exc:
             snap.error = str(exc)
@@ -289,13 +369,13 @@ class ReadinessService:
             and (force or time.time() - self.wallet.snapshot.refreshed_at > 60)
         ):
             self.wallet.client = getattr(self.bot, "_client", self.wallet.client)
-            await self.wallet.refresh()
+            token_ids = []
+            observer_state = getattr(getattr(self.bot, "_observer", None), "state", None)
+            if observer_state is not None:
+                token_ids = observer_state.get_all_tracked_tokens()
+            await self.wallet.refresh(token_ids)
         checks["clob_authentication"] = {
-            "status": (
-                "ok"
-                if (self.wallet.snapshot.authenticated or bool(settings.private_key))
-                else "blocked"
-            )
+            "status": "ok" if self.wallet.snapshot.authenticated else "blocked"
         }
 
         def _check_rpc():
@@ -323,16 +403,39 @@ class ReadinessService:
         allowance = self.wallet.snapshot.collateral_allowance
         ctf_allowance = self.wallet.snapshot.ctf_allowance
         checks["balance"] = {
-            "status": "ok",
+            "status": "ok"
+            if balance is not None and balance >= settings.max_trade_usd
+            else "blocked",
             "value": balance if balance is not None else 0.0,
+            "required": settings.max_trade_usd,
         }
         checks["usdc_allowance"] = {
-            "status": "ok",
+            "status": "ok"
+            if allowance is not None and allowance >= settings.max_trade_usd
+            else "blocked",
             "value": allowance if allowance is not None else 0.0,
+            "required": settings.max_trade_usd,
+            "unlimited": self.wallet.snapshot.collateral_allowance_unlimited,
         }
         checks["ctf_allowance"] = {
-            "status": "ok",
+            "status": "ok" if ctf_allowance is not None and ctf_allowance > 0 else "blocked",
             "value": ctf_allowance if ctf_allowance is not None else 0.0,
+            "unlimited": self.wallet.snapshot.ctf_allowance_unlimited,
+        }
+        checks["buy_capability"] = {
+            "status": (
+                "ok"
+                if balance is not None
+                and balance >= settings.max_trade_usd
+                and allowance is not None
+                and allowance >= settings.max_trade_usd
+                else "blocked"
+            ),
+            "detail": "saldo e autorização suficientes para o trade máximo configurado",
+        }
+        checks["sell_capability"] = {
+            "status": "ok" if ctf_allowance is not None and ctf_allowance > 0 else "blocked",
+            "detail": "contratos podem mover tokens de resultado; cada venda ainda exige posição suficiente",
         }
 
         geo = await self.geoblock.check(force=force)
@@ -369,6 +472,8 @@ class ReadinessService:
             "balance",
             "usdc_allowance",
             "ctf_allowance",
+            "buy_capability",
+            "sell_capability",
             "geographic_eligibility",
             "kill_switch",
             "risk_configuration",
