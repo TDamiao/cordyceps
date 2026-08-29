@@ -24,7 +24,7 @@ NEG_RISK_ADAPTER_ADDRESS = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"
 CTF_EXCHANGE_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
 # Polymarket Relayer (for gasless transactions)
-POLYMARKET_RELAYER = "0x..." # TODO: Get from Polymarket docs
+POLYMARKET_RELAYER = "0x..."  # TODO: Get from Polymarket docs
 
 # Binary partition for YES/NO markets
 # YES = 0b01 = 1, NO = 0b10 = 2

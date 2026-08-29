@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 class SignalType(Enum):
     """Type of arbitrage signal."""
 
-    BUY_SET = "BUY_SET"    # Buy all outcomes (sum of asks < 1)
+    BUY_SET = "BUY_SET"  # Buy all outcomes (sum of asks < 1)
     SELL_SET = "SELL_SET"  # Sell all outcomes (sum of bids > 1)
 
 
@@ -34,20 +34,20 @@ class ArbitrageOpportunity:
     market_id: str
     signal_type: SignalType
     token_ids: list[str]
-    prices: list[Decimal]           # Best-level execution prices for each token
-    sizes: list[Decimal]            # Available size at each best level
-    max_size: Decimal               # Maximum uniform trade size
-    total_cost: Decimal             # Total cost to enter position
-    expected_payout: Decimal        # Expected payout (1.0 per set)
-    gross_profit: Decimal           # Profit before fees
-    fees: Decimal                   # Total fees
-    net_profit: Decimal             # Profit after fees
-    profit_pct: Decimal             # Profit as percentage
+    prices: list[Decimal]  # Best-level execution prices for each token
+    sizes: list[Decimal]  # Available size at each best level
+    max_size: Decimal  # Maximum uniform trade size
+    total_cost: Decimal  # Total cost to enter position
+    expected_payout: Decimal  # Expected payout (1.0 per set)
+    gross_profit: Decimal  # Profit before fees
+    fees: Decimal  # Total fees
+    net_profit: Decimal  # Profit after fees
+    profit_pct: Decimal  # Profit as percentage
     # Depth-aware VWAP fields
-    vwap_prices: list[Decimal] = field(default_factory=list)       # VWAP price per leg
-    executable_quantity: Decimal = Decimal("0")                     # quantity we can fill
-    edge: Decimal = Decimal("0")       # raw edge (BUY: 1-sum_vwap; SELL: sum_vwap-1)
-    roi: Decimal = Decimal("0")        # net_profit / total_cost
+    vwap_prices: list[Decimal] = field(default_factory=list)  # VWAP price per leg
+    executable_quantity: Decimal = Decimal("0")  # quantity we can fill
+    edge: Decimal = Decimal("0")  # raw edge (BUY: 1-sum_vwap; SELL: sum_vwap-1)
+    roi: Decimal = Decimal("0")  # net_profit / total_cost
     timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
 
     @property
@@ -61,11 +61,11 @@ class ArbitrageConfig:
     """Configuration for arbitrage detection."""
 
     min_profit_threshold: Decimal = Decimal("0.005")  # 0.5% minimum profit
-    max_position_size: Decimal = Decimal("1000")      # Max USDC per trade
-    min_liquidity: Decimal = Decimal("10")            # Min size at price level
-    max_slippage_pct: Decimal = Decimal("0.005")      # Max slippage tolerance
-    orderbook_stale_ms: int = 3000                     # Max age of orderbook before rejection
-    leg_risk_buffer: Decimal = Decimal("0.0")          # Extra buffer subtracted from edge
+    max_position_size: Decimal = Decimal("1000")  # Max USDC per trade
+    min_liquidity: Decimal = Decimal("10")  # Min size at price level
+    max_slippage_pct: Decimal = Decimal("0.005")  # Max slippage tolerance
+    orderbook_stale_ms: int = 3000  # Max age of orderbook before rejection
+    leg_risk_buffer: Decimal = Decimal("0.0")  # Extra buffer subtracted from edge
     taker_fee: Decimal = Decimal(str(TradingConfig.TAKER_FEE))
     maker_fee: Decimal = Decimal(str(TradingConfig.MAKER_FEE))
 
@@ -191,9 +191,7 @@ class ArbitrageEngine:
             leg_levels.append(lvls)
 
         # Initial VWAP from first level only
-        sum(
-            leg_levels[i][0].price for i in range(len(token_ids))
-        )
+        sum(leg_levels[i][0].price for i in range(len(token_ids)))
 
         # Walk levels until VWAP sum >= 1.0 (no more edge)
         cum_size = [Decimal("0") for _ in token_ids]
@@ -211,7 +209,9 @@ class ArbitrageEngine:
                 break
 
             new_cum_size = [cum_size[i] + fill for i in range(len(token_ids))]
-            new_cum_cost = [cum_cost[i] + fill * leg_levels[i][lvl_idx].price for i in range(len(token_ids))]
+            new_cum_cost = [
+                cum_cost[i] + fill * leg_levels[i][lvl_idx].price for i in range(len(token_ids))
+            ]
             new_total = total_executable + fill
 
             new_vwap = [new_cum_cost[i] / new_cum_size[i] for i in range(len(token_ids))]
@@ -292,9 +292,7 @@ class ArbitrageEngine:
             leg_levels.append(lvls)
 
         # Initial VWAP from first level only
-        sum(
-            leg_levels[i][0].price for i in range(len(token_ids))
-        )
+        sum(leg_levels[i][0].price for i in range(len(token_ids)))
 
         cum_size = [Decimal("0") for _ in token_ids]
         cum_rev = [Decimal("0") for _ in token_ids]
@@ -311,7 +309,9 @@ class ArbitrageEngine:
                 break
 
             new_cum_size = [cum_size[i] + fill for i in range(len(token_ids))]
-            new_cum_rev = [cum_rev[i] + fill * leg_levels[i][lvl_idx].price for i in range(len(token_ids))]
+            new_cum_rev = [
+                cum_rev[i] + fill * leg_levels[i][lvl_idx].price for i in range(len(token_ids))
+            ]
             new_total = total_executable + fill
 
             new_vwap = [new_cum_rev[i] / new_cum_size[i] for i in range(len(token_ids))]
@@ -395,6 +395,7 @@ class ArbitrageEngine:
 # ------------------------------------------------------------------
 # Helper functions
 # ------------------------------------------------------------------
+
 
 def calculate_price_sum(order_books: dict[str, OrderBook], side: str) -> Decimal | None:
     total = Decimal("0")

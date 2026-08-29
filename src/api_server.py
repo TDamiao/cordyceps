@@ -43,6 +43,7 @@ _startup_ts: float | None = None
 # Factories – overridable in tests via monkeypatch
 # ---------------------------------------------------------------------------
 
+
 def create_bot() -> ArbitrageBot:
     """Create (but do not start) the shared ArbitrageBot instance."""
     return ArbitrageBot()
@@ -62,6 +63,7 @@ def create_scanner(
 # ---------------------------------------------------------------------------
 # Lifespan – runs once per process
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -127,6 +129,7 @@ app = FastAPI(
 # Health endpoint
 # ---------------------------------------------------------------------------
 
+
 @app.get("/health")
 async def health_endpoint() -> dict[str, Any]:
     """
@@ -191,6 +194,7 @@ async def health_endpoint() -> dict[str, Any]:
 # Status / debug endpoint
 # ---------------------------------------------------------------------------
 
+
 @app.get("/status")
 async def status_endpoint() -> dict[str, Any]:
     """Lightweight status for liveness probes."""
@@ -202,6 +206,7 @@ async def status_endpoint() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # CLI entrypoint
 # ---------------------------------------------------------------------------
+
 
 def run_server(port: int | None = None) -> None:
     """Start uvicorn programmatically."""

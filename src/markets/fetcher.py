@@ -299,6 +299,7 @@ class MarketFetcher:
 
             # Parse clobTokenIds - it's a JSON string like '["token1", "token2"]'
             import json
+
             if isinstance(clob_token_ids_raw, str) and clob_token_ids_raw:
                 try:
                     clob_token_ids = json.loads(clob_token_ids_raw)

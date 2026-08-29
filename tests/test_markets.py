@@ -104,22 +104,37 @@ class TestMarketInfo:
 
         # Active and not closed
         active_market = MarketInfo(
-            condition_id="c1", question_id="q1", question="?",
-            slug="s", tokens=tokens, active=True, closed=False
+            condition_id="c1",
+            question_id="q1",
+            question="?",
+            slug="s",
+            tokens=tokens,
+            active=True,
+            closed=False,
         )
         assert active_market.is_tradeable
 
         # Not active
         inactive_market = MarketInfo(
-            condition_id="c2", question_id="q2", question="?",
-            slug="s", tokens=tokens, active=False, closed=False
+            condition_id="c2",
+            question_id="q2",
+            question="?",
+            slug="s",
+            tokens=tokens,
+            active=False,
+            closed=False,
         )
         assert not inactive_market.is_tradeable
 
         # Closed
         closed_market = MarketInfo(
-            condition_id="c3", question_id="q3", question="?",
-            slug="s", tokens=tokens, active=True, closed=True
+            condition_id="c3",
+            question_id="q3",
+            question="?",
+            slug="s",
+            tokens=tokens,
+            active=True,
+            closed=True,
         )
         assert not closed_market.is_tradeable
 
@@ -281,14 +296,20 @@ class TestMarketFetcher:
         # Create and cache some markets
         markets = [
             MarketInfo(
-                condition_id="c1", question_id="q1", question="?",
-                slug="s", tokens=[Token("t1", "Yes"), Token("t2", "No")],
-                active=True
+                condition_id="c1",
+                question_id="q1",
+                question="?",
+                slug="s",
+                tokens=[Token("t1", "Yes"), Token("t2", "No")],
+                active=True,
             ),
             MarketInfo(
-                condition_id="c2", question_id="q2", question="?",
-                slug="s", tokens=[Token("t3", "A"), Token("t4", "B"), Token("t5", "C")],
-                active=True
+                condition_id="c2",
+                question_id="q2",
+                question="?",
+                slug="s",
+                tokens=[Token("t3", "A"), Token("t4", "B"), Token("t5", "C")],
+                active=True,
             ),
         ]
         fetcher.cache.update(markets)

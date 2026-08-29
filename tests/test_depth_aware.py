@@ -16,6 +16,7 @@ from src.client.models import OrderBook, OrderBookLevel
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_book(token_id, bids=None, asks=None, timestamp=None) -> OrderBook:
     """Build an OrderBook from [(price, size), ...] level lists."""
     return OrderBook(
@@ -29,6 +30,7 @@ def make_book(token_id, bids=None, asks=None, timestamp=None) -> OrderBook:
 # ---------------------------------------------------------------------------
 # Depth-aware detector
 # ---------------------------------------------------------------------------
+
 
 class TestDepthAwareConfig:
     def test_defaults(self):
@@ -210,13 +212,15 @@ class TestLegRisk:
         from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
         # edge = 0.06, buffer = 0.06 -> not > buffer, rejected
-        engine = ArbitrageEngine(ArbitrageConfig(
-            taker_fee=Decimal("0"),
-            min_profit_threshold=Decimal("0"),
-            min_liquidity=Decimal("1"),
-            max_slippage_pct=Decimal("0"),
-            leg_risk_buffer=Decimal("0.06"),
-        ))
+        engine = ArbitrageEngine(
+            ArbitrageConfig(
+                taker_fee=Decimal("0"),
+                min_profit_threshold=Decimal("0"),
+                min_liquidity=Decimal("1"),
+                max_slippage_pct=Decimal("0"),
+                leg_risk_buffer=Decimal("0.06"),
+            )
+        )
         order_books = {
             "yes": make_book("yes", asks=[("0.47", "100")]),
             "no": make_book("no", asks=[("0.47", "100")]),
@@ -227,13 +231,15 @@ class TestLegRisk:
         from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
         # edge = 0.10 > buffer = 0.06 -> allowed
-        engine = ArbitrageEngine(ArbitrageConfig(
-            taker_fee=Decimal("0"),
-            min_profit_threshold=Decimal("0"),
-            min_liquidity=Decimal("1"),
-            max_slippage_pct=Decimal("0"),
-            leg_risk_buffer=Decimal("0.06"),
-        ))
+        engine = ArbitrageEngine(
+            ArbitrageConfig(
+                taker_fee=Decimal("0"),
+                min_profit_threshold=Decimal("0"),
+                min_liquidity=Decimal("1"),
+                max_slippage_pct=Decimal("0"),
+                leg_risk_buffer=Decimal("0.06"),
+            )
+        )
         order_books = {
             "yes": make_book("yes", asks=[("0.45", "100")]),
             "no": make_book("no", asks=[("0.45", "100")]),
@@ -244,13 +250,15 @@ class TestLegRisk:
     def test_fees_applied_per_leg(self):
         from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
-        engine = ArbitrageEngine(ArbitrageConfig(
-            taker_fee=Decimal("0.01"),
-            min_profit_threshold=Decimal("0"),
-            min_liquidity=Decimal("1"),
-            max_position_size=Decimal("100"),
-            max_slippage_pct=Decimal("0"),
-        ))
+        engine = ArbitrageEngine(
+            ArbitrageConfig(
+                taker_fee=Decimal("0.01"),
+                min_profit_threshold=Decimal("0"),
+                min_liquidity=Decimal("1"),
+                max_position_size=Decimal("100"),
+                max_slippage_pct=Decimal("0"),
+            )
+        )
         order_books = {
             "yes": make_book("yes", asks=[("0.45", "100")]),
             "no": make_book("no", asks=[("0.45", "100")]),
@@ -266,6 +274,7 @@ class TestLegRisk:
 # ---------------------------------------------------------------------------
 # Paper simulator
 # ---------------------------------------------------------------------------
+
 
 class TestPaperSimulatorHappyPath:
     @pytest.mark.asyncio
@@ -369,9 +378,9 @@ class TestPaperSimulatorLegFailure:
         )
         sim = PaperSimulator(
             latency_ms=0,
-            base_fill_probability=1.0,   # all legs pass fill gate
+            base_fill_probability=1.0,  # all legs pass fill gate
             leg_failure_probability=0.0,
-            fill_fraction_jitter=0.5,     # each fill is 50-100% of executable qty
+            fill_fraction_jitter=0.5,  # each fill is 50-100% of executable qty
             log_path=str(tmp_path / "paper_log.jsonl"),
         )
         result = await sim.execute(opp)

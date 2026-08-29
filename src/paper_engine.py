@@ -46,7 +46,6 @@ class PaperFill:
 class PaperEngine:
     """Simulated trade executor used when trading_mode is paper."""
 
-
     def __init__(self, simulated_latency_ms: int | None = None) -> None:
         settings = get_settings()
         self._latency_ms = (
@@ -80,9 +79,7 @@ class PaperEngine:
             trade_id = f"paper-{int(time.time())}-{self._trade_seq}"
             side = "BUY" if opportunity.signal_type == SignalType.BUY_SET else "SELL"
             size = float(opportunity.max_size)
-            avg_price = float(
-                sum(opportunity.prices) / max(len(opportunity.prices), 1)
-            )
+            avg_price = float(sum(opportunity.prices) / max(len(opportunity.prices), 1))
             expected_profit = float(opportunity.net_profit)
 
             # Simulate small slippage skew in paper mode

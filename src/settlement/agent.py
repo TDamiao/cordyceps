@@ -275,12 +275,14 @@ class SettlementAgent:
             tx = self._ctf.functions.mergePositions(
                 condition_bytes,
                 amount_raw,
-            ).build_transaction({
-                "from": self._address,
-                "nonce": self._w3.eth.get_transaction_count(self._address),
-                "gas": 300000,
-                "gasPrice": self._w3.eth.gas_price,
-            })
+            ).build_transaction(
+                {
+                    "from": self._address,
+                    "nonce": self._w3.eth.get_transaction_count(self._address),
+                    "gas": 300000,
+                    "gasPrice": self._w3.eth.gas_price,
+                }
+            )
 
             # Sign and send
             signed_tx = self._w3.eth.account.sign_transaction(tx, self._private_key)

@@ -21,7 +21,7 @@ def check_proxy_ownership():
         host=host,
         key=key,
         chain_id=chain_id,
-        signature_type=1, # POLYGON
+        signature_type=1,  # POLYGON
     )
 
     try:
@@ -40,6 +40,7 @@ def check_proxy_ownership():
     except Exception as e:
         print(f"❌ Error deriving credentials: {e}")
         print("This usually means the EOA has no Proxy or the API is rejecting it.")
+
 
 if __name__ == "__main__":
     check_proxy_ownership()

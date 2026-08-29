@@ -25,7 +25,9 @@ async def monitor_spreads():
     print(f"✅ Fetched {len(markets)} markets.")
 
     print("\n📊 Current Spreads (Snapshot):")
-    print(f"{'Market ID':<15} | {'Name':<40} | {'Ask Sum':<10} | {'Bid Sum':<10} | {'Spread %':<10}")
+    print(
+        f"{'Market ID':<15} | {'Name':<40} | {'Ask Sum':<10} | {'Bid Sum':<10} | {'Spread %':<10}"
+    )
     print("-" * 100)
 
     for market in markets:
@@ -63,12 +65,15 @@ async def monitor_spreads():
             # Highlight if profitable
             prefix = "🟢 " if buy_spread > 0 else "🔴 "
 
-            print(f"{prefix}{market.condition_id[:10]}... | {market.question[:38]:<40} | {ask_sum:.4f}     | {bid_sum:.4f}     | {buy_spread:+.2f}%")
+            print(
+                f"{prefix}{market.condition_id[:10]}... | {market.question[:38]:<40} | {ask_sum:.4f}     | {bid_sum:.4f}     | {buy_spread:+.2f}%"
+            )
 
         except Exception as e:
             print(f"Error fetching {market.condition_id}: {e}")
 
     print("\n✅ Scan Complete.")
+
 
 if __name__ == "__main__":
     asyncio.run(monitor_spreads())

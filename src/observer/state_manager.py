@@ -141,8 +141,7 @@ class StateManager:
             return None
 
         return {
-            tid: self._order_books.get(tid, OrderBook(token_id=tid))
-            for tid in market.token_ids
+            tid: self._order_books.get(tid, OrderBook(token_id=tid)) for tid in market.token_ids
         }
 
     def handle_book_update(self, token_id: str, data: dict) -> None:
@@ -172,9 +171,12 @@ class StateManager:
                 if market.is_complete and self.on_arb_opportunity:
                     # Schedule async callback properly
                     import asyncio
+
                     try:
                         loop = asyncio.get_running_loop()
-                        loop.create_task(self.on_arb_opportunity(condition_id, market.order_books.copy()))
+                        loop.create_task(
+                            self.on_arb_opportunity(condition_id, market.order_books.copy())
+                        )
                     except RuntimeError:
                         # No event loop, skip async callback
                         pass

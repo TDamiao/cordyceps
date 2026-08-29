@@ -70,10 +70,13 @@ class TestStateManager:
         manager = StateManager(on_book_update=on_update)
         manager.register_market("cond_123", ["token_yes"])
 
-        manager.handle_book_update("token_yes", {
-            "bids": [{"price": "0.55", "size": "100"}],
-            "asks": [{"price": "0.57", "size": "150"}],
-        })
+        manager.handle_book_update(
+            "token_yes",
+            {
+                "bids": [{"price": "0.55", "size": "100"}],
+                "asks": [{"price": "0.57", "size": "150"}],
+            },
+        )
 
         assert callback_data["token_id"] == "token_yes"
         assert len(callback_data["book"].bids) == 1
@@ -112,18 +115,24 @@ class TestStateManager:
         manager.register_market("cond_123", ["token_yes", "token_no"])
 
         # First update - not complete yet
-        manager.handle_book_update("token_yes", {
-            "bids": [{"price": "0.45", "size": "100"}],
-            "asks": [{"price": "0.47", "size": "100"}],
-        })
+        manager.handle_book_update(
+            "token_yes",
+            {
+                "bids": [{"price": "0.45", "size": "100"}],
+                "asks": [{"price": "0.47", "size": "100"}],
+            },
+        )
         await asyncio.sleep(0.01)  # Allow task to run
         assert "condition_id" not in opportunity_data
 
         # Second update - now complete
-        manager.handle_book_update("token_no", {
-            "bids": [{"price": "0.50", "size": "100"}],
-            "asks": [{"price": "0.52", "size": "100"}],
-        })
+        manager.handle_book_update(
+            "token_no",
+            {
+                "bids": [{"price": "0.50", "size": "100"}],
+                "asks": [{"price": "0.52", "size": "100"}],
+            },
+        )
         await asyncio.sleep(0.01)  # Allow task to run
         assert opportunity_data["condition_id"] == "cond_123"
         assert len(opportunity_data["books"]) == 2

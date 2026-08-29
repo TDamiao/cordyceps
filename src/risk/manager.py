@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 @dataclass
 class RiskState:
     """Tracks current risk state (in-memory)."""
+
     consecutive_failures: int = 0
     daily_pnl: Decimal = Decimal("0")
     last_failure_time: float = 0
@@ -68,7 +69,10 @@ class RiskManager:
 
         # 2. Check Daily Loss
         if self._state.daily_pnl < Decimal(str(-self._settings.max_daily_loss)):
-            return False, f"Daily loss limit exceeded: {self._state.daily_pnl} < -{self._settings.max_daily_loss}"
+            return (
+                False,
+                f"Daily loss limit exceeded: {self._state.daily_pnl} < -{self._settings.max_daily_loss}",
+            )
 
         return True, "OK"
 
@@ -86,9 +90,7 @@ class RiskManager:
         self._state.total_trades_today += 1
 
         logger.info(
-            "Expected trade PnL recorded",
-            trade_pnl=str(pnl),
-            daily_pnl=str(self._state.daily_pnl)
+            "Expected trade PnL recorded", trade_pnl=str(pnl), daily_pnl=str(self._state.daily_pnl)
         )
 
     def record_failure(self, error_reason: str):
@@ -106,7 +108,7 @@ class RiskManager:
         logger.warning(
             "Trade failure recorded",
             consecutive_failures=self._state.consecutive_failures,
-            reason=error_reason
+            reason=error_reason,
         )
 
         # Trigger circuit breaker if threshold reached
@@ -136,7 +138,7 @@ class RiskManager:
                 yes_price=str(yes_price),
                 no_price=str(no_price),
                 total_cost=str(total_cost),
-                threshold="1.0"
+                threshold="1.0",
             )
             return False
 
@@ -169,7 +171,7 @@ class RiskManager:
                 "Resetting daily risk stats",
                 old_date=self._state.last_reset_date,
                 new_date=current_date,
-                final_previous_pnl=str(self._state.daily_pnl)
+                final_previous_pnl=str(self._state.daily_pnl),
             )
             self._state.last_reset_date = current_date
             self._state.daily_pnl = Decimal("0")

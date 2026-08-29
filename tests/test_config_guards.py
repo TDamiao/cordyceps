@@ -21,6 +21,7 @@ from src.config import Settings, get_settings
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_settings(**overrides) -> Settings:
     """Construct a Settings instance with overridden env vars."""
     env = {
@@ -41,6 +42,7 @@ def _make_settings(**overrides) -> Settings:
 # Kill-switch tests
 # ---------------------------------------------------------------------------
 
+
 class TestKillSwitch:
     def test_kill_switch_default_off(self):
         s = _make_settings()
@@ -60,6 +62,7 @@ class TestKillSwitch:
 # ---------------------------------------------------------------------------
 # Paper / live mode guard tests
 # ---------------------------------------------------------------------------
+
 
 class TestPaperLiveGuards:
     def test_paper_mode_default(self):
@@ -113,6 +116,7 @@ class TestPaperLiveGuards:
 # Trade-size limit tests
 # ---------------------------------------------------------------------------
 
+
 class TestTradeSizeLimits:
     def test_max_trade_usd_default(self):
         s = _make_settings()
@@ -135,6 +139,7 @@ class TestTradeSizeLimits:
 # Min-trade / min-liquidity / stale-book tests
 # ---------------------------------------------------------------------------
 
+
 class TestMinTradeAndStaleGuards:
     def test_min_trade_shares_default(self):
         s = _make_settings()
@@ -153,9 +158,11 @@ class TestMinTradeAndStaleGuards:
 # Engine respects trade-size limits
 # ---------------------------------------------------------------------------
 
+
 class TestEngineRespectsLimits:
     def _engine(self, **overrides):
         from src.engine.detector import ArbitrageConfig, ArbitrageEngine
+
         base = dict(
             taker_fee=Decimal("0"),
             min_profit_threshold=Decimal("0"),
@@ -189,13 +196,20 @@ class TestEngineRespectsLimits:
 
     def test_stale_book_rejected(self):
         import time
+
         engine = self._engine(orderbook_stale_ms=1000)
         from src.client.models import OrderBook, OrderBookLevel
 
         now_ms = int(time.time() * 1000)
         books = {
-            "yes": OrderBook("yes", asks=[OrderBookLevel(Decimal("0.40"), Decimal("100"))], timestamp=now_ms - 5000),
-            "no": OrderBook("no", asks=[OrderBookLevel(Decimal("0.40"), Decimal("100"))], timestamp=now_ms),
+            "yes": OrderBook(
+                "yes",
+                asks=[OrderBookLevel(Decimal("0.40"), Decimal("100"))],
+                timestamp=now_ms - 5000,
+            ),
+            "no": OrderBook(
+                "no", asks=[OrderBookLevel(Decimal("0.40"), Decimal("100"))], timestamp=now_ms
+            ),
         }
         opp = engine.analyze_market("m-stale", books)
         assert opp is None
@@ -203,13 +217,18 @@ class TestEngineRespectsLimits:
 
     def test_fresh_book_accepted(self):
         import time
+
         engine = self._engine(orderbook_stale_ms=10000)
         from src.client.models import OrderBook, OrderBookLevel
 
         now_ms = int(time.time() * 1000)
         books = {
-            "yes": OrderBook("yes", asks=[OrderBookLevel(Decimal("0.40"), Decimal("100"))], timestamp=now_ms),
-            "no": OrderBook("no", asks=[OrderBookLevel(Decimal("0.40"), Decimal("100"))], timestamp=now_ms),
+            "yes": OrderBook(
+                "yes", asks=[OrderBookLevel(Decimal("0.40"), Decimal("100"))], timestamp=now_ms
+            ),
+            "no": OrderBook(
+                "no", asks=[OrderBookLevel(Decimal("0.40"), Decimal("100"))], timestamp=now_ms
+            ),
         }
         opp = engine.analyze_market("m-fresh", books)
         assert opp is not None
@@ -218,6 +237,7 @@ class TestEngineRespectsLimits:
 # ---------------------------------------------------------------------------
 # Risk manager circuit breaker
 # ---------------------------------------------------------------------------
+
 
 class TestRiskManagerCircuitBreaker:
     def test_circuit_breaker_triggers_after_threshold(self):

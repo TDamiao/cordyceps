@@ -28,6 +28,7 @@ def mock_web3():
         if unit == "gwei":
             return int(val * 10**9)
         return val
+
     w3.to_wei.side_effect = mock_to_wei
 
     # Mock account
@@ -54,7 +55,7 @@ def mock_web3():
 @pytest.fixture
 def mock_ctf_contract():
     contract = MagicMock()
-    contract.functions.balanceOf.return_value.call.return_value = 20000000 # 20 shares
+    contract.functions.balanceOf.return_value.call.return_value = 20000000  # 20 shares
     contract.functions.mergePositions.return_value.build_transaction.return_value = {
         "to": "0xCTF",
         "data": "0x...",
@@ -110,7 +111,7 @@ def test_cannot_merge(ctf_wrapper, mock_ctf_contract):
 async def test_merge_positions_success(ctf_wrapper, mock_ctf_contract):
     """Test successful merge execution."""
     # Mock successful balance check
-    ctf_wrapper.can_merge = MagicMock(return_value=(True, 2000000)) # 2 shares (USDC 6 decimals)
+    ctf_wrapper.can_merge = MagicMock(return_value=(True, 2000000))  # 2 shares (USDC 6 decimals)
 
     result = await ctf_wrapper.merge_positions(CONDITION_ID, amount=2000000)
 
@@ -125,7 +126,7 @@ async def test_merge_positions_success(ctf_wrapper, mock_ctf_contract):
 @pytest.mark.asyncio
 async def test_merge_positions_gas_too_high(ctf_wrapper, mock_web3):
     """Test merge aborted due to high gas."""
-    mock_web3.eth.gas_price = 200000000000 # 200 gwei
+    mock_web3.eth.gas_price = 200000000000  # 200 gwei
 
     # Mock successful balance check
     ctf_wrapper.can_merge = MagicMock(return_value=(True, 10))
@@ -143,9 +144,7 @@ async def test_merge_positions_with_gas_override(ctf_wrapper, mock_ctf_contract,
     override_gas = int(50 * 10**9)
 
     result = await ctf_wrapper.merge_positions(
-        CONDITION_ID,
-        amount=100,
-        gas_price_wei_override=override_gas
+        CONDITION_ID, amount=100, gas_price_wei_override=override_gas
     )
 
     assert result.success is True
@@ -161,4 +160,3 @@ async def test_merge_positions_with_gas_override(ctf_wrapper, mock_ctf_contract,
     call_kwargs = contract_function.build_transaction.call_args[0][0]
     assert call_kwargs["gasPrice"] == override_gas
     assert call_kwargs["gasPrice"] != mock_web3.eth.gas_price
-

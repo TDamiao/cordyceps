@@ -189,7 +189,10 @@ class MetricsTracker:
                 if trade.realized_profit > metrics.best_trade_profit:
                     metrics.best_trade_profit = trade.realized_profit
 
-                if trade.realized_profit < metrics.worst_trade_profit or metrics.worst_trade_profit == 0:
+                if (
+                    trade.realized_profit < metrics.worst_trade_profit
+                    or metrics.worst_trade_profit == 0
+                ):
                     metrics.worst_trade_profit = trade.realized_profit
             else:
                 metrics.failed_trades += 1
@@ -210,11 +213,7 @@ class MetricsTracker:
     def get_profit_by_period(self, period_hours: int = 24) -> Decimal:
         """Get profit for a specific time period."""
         cutoff = int((time.time() - period_hours * 3600) * 1000)
-        return sum(
-            t.realized_profit
-            for t in self._trades
-            if t.timestamp >= cutoff and t.success
-        )
+        return sum(t.realized_profit for t in self._trades if t.timestamp >= cutoff and t.success)
 
     def _save_history(self) -> None:
         """Save trade history to disk."""
@@ -324,9 +323,7 @@ class HealthMonitor:
         errors_last_hour = sum(1 for e in self._errors if e >= hour_ago)
 
         # Count trades in last hour
-        trades_last_hour = sum(
-            1 for t in self._metrics._trades if t.timestamp >= hour_ago
-        )
+        trades_last_hour = sum(1 for t in self._metrics._trades if t.timestamp >= hour_ago)
 
         # Determine status
         if not self._websocket_connected:

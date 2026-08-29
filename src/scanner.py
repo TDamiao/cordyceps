@@ -68,9 +68,7 @@ class Scanner:
                 self._tracked.add(market.condition_id)
                 continue
             try:
-                self._observer.state.register_market(
-                    market.condition_id, market.token_ids
-                )
+                self._observer.state.register_market(market.condition_id, market.token_ids)
                 await self._observer._ws.subscribe(market.token_ids)
                 new_tokens.extend(market.token_ids)
                 self._tracked.add(market.condition_id)

@@ -294,7 +294,8 @@ class WebSocketClient:
         self._reconnect_attempts += 1
 
         delay = min(
-            self.config.reconnect_delay * (self.config.reconnect_backoff ** (self._reconnect_attempts - 1)),
+            self.config.reconnect_delay
+            * (self.config.reconnect_backoff ** (self._reconnect_attempts - 1)),
             self.config.max_reconnect_delay,
         )
 

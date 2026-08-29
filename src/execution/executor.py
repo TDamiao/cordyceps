@@ -131,7 +131,9 @@ class OrderExecutor:
         result = ExecutionResult(opportunity=opportunity)
 
         # Determine order side based on signal type
-        order_side = OrderSide.BUY if opportunity.signal_type == SignalType.BUY_SET else OrderSide.SELL
+        order_side = (
+            OrderSide.BUY if opportunity.signal_type == SignalType.BUY_SET else OrderSide.SELL
+        )
 
         logger.info(
             "Executing opportunity",
@@ -204,11 +206,7 @@ class OrderExecutor:
                 )
 
                 # Trigger atomic merge if enabled and we BOUGHT positions
-                if (
-                    self._settings.use_atomic_merge
-                    and self._ctf
-                    and order_side == OrderSide.BUY
-                ):
+                if self._settings.use_atomic_merge and self._ctf and order_side == OrderSide.BUY:
                     await self._handle_atomic_merge(opportunity.market_id, result)
 
             elif result.any_filled:
@@ -238,11 +236,7 @@ class OrderExecutor:
         result.execution_time_ms = int((time.time() - start_time) * 1000)
         return result
 
-    async def _handle_atomic_merge(
-        self,
-        condition_id: str,
-        result: ExecutionResult
-    ) -> None:
+    async def _handle_atomic_merge(self, condition_id: str, result: ExecutionResult) -> None:
         """
         Handle atomic merge logic.
 
@@ -276,13 +270,13 @@ class OrderExecutor:
                     # Fetch current gas price and boost it
                     try:
                         base_gas = self._ctf.w3.eth.gas_price
-                        multiplier = 1.0 + (0.2 * (attempt - 1)) # 1.2x, 1.4x
+                        multiplier = 1.0 + (0.2 * (attempt - 1))  # 1.2x, 1.4x
                         gas_price_override = int(base_gas * multiplier)
                         logger.info(
                             "boosting gas for retry",
                             attempt=attempt,
                             multiplier=multiplier,
-                            new_gas_gwei=gas_price_override / 1e9
+                            new_gas_gwei=gas_price_override / 1e9,
                         )
                     except Exception as e:
                         logger.warning("Failed to estimate gas for boost", error=str(e))
@@ -300,16 +294,12 @@ class OrderExecutor:
                         "Atomic merge successful!",
                         tx_hash=merge_res.tx_hash,
                         returned_usdc=str(merge_res.amount_returned),
-                        attempt=attempt
+                        attempt=attempt,
                     )
-                    return # Success! Exit loop
+                    return  # Success! Exit loop
 
                 # If failed
-                logger.warning(
-                    "Atomic merge failed",
-                    attempt=attempt,
-                    error=merge_res.error
-                )
+                logger.warning("Atomic merge failed", attempt=attempt, error=merge_res.error)
 
                 if attempt < max_retries:
                     wait_time = 1.5 * attempt
@@ -320,7 +310,7 @@ class OrderExecutor:
             logger.error(
                 "CRITICAL: Atomic merge failed after all retries",
                 condition_id=condition_id,
-                final_error=merge_res.error
+                final_error=merge_res.error,
             )
             # Don't fail the whole execution result, as we still hold the positions
             # We can retry merge later or hold to settlement
@@ -437,7 +427,9 @@ class OrderExecutor:
             "orders_submitted": self._orders_submitted,
             "orders_filled": self._orders_filled,
             "orders_failed": self._orders_failed,
-            "fill_rate": self._orders_filled / self._orders_submitted if self._orders_submitted > 0 else 0,
+            "fill_rate": (
+                self._orders_filled / self._orders_submitted if self._orders_submitted > 0 else 0
+            ),
             **self._rate_limiter.stats,
         }
 

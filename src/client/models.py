@@ -29,8 +29,8 @@ class OrderType(StrEnum):
 class MarketType(StrEnum):
     """Market structure type."""
 
-    BINARY = "binary"          # Standard Yes/No market
-    NEG_RISK = "neg_risk"      # Negative risk multi-outcome
+    BINARY = "binary"  # Standard Yes/No market
+    NEG_RISK = "neg_risk"  # Negative risk multi-outcome
 
 
 @dataclass

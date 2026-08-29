@@ -340,7 +340,3 @@ class TestHelperFunctions:
         }
 
         assert not is_sell_opportunity(order_books_no)
-
-
-
-

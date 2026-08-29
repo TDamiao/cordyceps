@@ -91,7 +91,9 @@ class TestSettlementAgent:
             mock.return_value = mock_instance
             mock.HTTPProvider = MagicMock()
             mock.to_checksum_address = lambda x: x
-            mock.to_bytes = lambda hexstr: bytes.fromhex(hexstr[2:] if hexstr.startswith("0x") else hexstr)
+            mock.to_bytes = lambda hexstr: bytes.fromhex(
+                hexstr[2:] if hexstr.startswith("0x") else hexstr
+            )
             yield mock
 
     @pytest.fixture

@@ -106,7 +106,7 @@ class PolymarketClient:
                 token_id=token_id,
                 bids=sorted(bids, key=lambda x: x.price, reverse=True),
                 asks=sorted(asks, key=lambda x: x.price),
-                timestamp=raw.timestamp if hasattr(raw, 'timestamp') else None,
+                timestamp=raw.timestamp if hasattr(raw, "timestamp") else None,
             )
 
         except Exception as e:

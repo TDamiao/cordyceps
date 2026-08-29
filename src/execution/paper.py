@@ -57,8 +57,7 @@ class SimulationResult:
     @property
     def any_filled(self) -> bool:
         return any(
-            o.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
-            for o in self.orders
+            o.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED) for o in self.orders
         )
 
 
@@ -95,9 +94,7 @@ class PaperSimulator:
         orders: list[OrderResult] = []
         any_failed = False
 
-        for i, (token_id, price) in enumerate(
-            zip(opportunity.token_ids, opportunity.prices)
-        ):
+        for i, (token_id, price) in enumerate(zip(opportunity.token_ids, opportunity.prices)):
             order = OrderResult(
                 token_id=token_id,
                 order_id=f"paper-{int(time.time())}-{i}",
@@ -105,10 +102,7 @@ class PaperSimulator:
             )
 
             # Leg failure injection applies to ALL legs independently
-            should_fail = (
-                self._leg_fail_prob > 0
-                and random.random() < self._leg_fail_prob
-            )
+            should_fail = self._leg_fail_prob > 0 and random.random() < self._leg_fail_prob
 
             if should_fail:
                 order.status = OrderStatus.FAILED
@@ -140,7 +134,11 @@ class PaperSimulator:
         success = not any_failed and min_filled > Decimal("0")
 
         if success:
-            realized = opportunity.net_profit * (min_filled / opportunity.max_size) if opportunity.max_size else Decimal("0")
+            realized = (
+                opportunity.net_profit * (min_filled / opportunity.max_size)
+                if opportunity.max_size
+                else Decimal("0")
+            )
         else:
             realized = Decimal("0")
 

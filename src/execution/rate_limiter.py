@@ -19,8 +19,8 @@ class RateLimitConfig:
 
     # CLOB API limits (from documentation)
     requests_per_second: float = 10.0  # General API limit
-    orders_per_second: float = 5.0     # Order submission limit
-    burst_size: int = 20               # Max burst capacity
+    orders_per_second: float = 5.0  # Order submission limit
+    burst_size: int = 20  # Max burst capacity
 
 
 class TokenBucket:
@@ -64,10 +64,7 @@ class TokenBucket:
             # Refill bucket based on elapsed time
             now = time.monotonic()
             elapsed = now - self._last_update
-            self._tokens = min(
-                self.capacity,
-                self._tokens + elapsed * self.rate
-            )
+            self._tokens = min(self.capacity, self._tokens + elapsed * self.rate)
             self._last_update = now
 
             # Check if we need to wait
@@ -79,10 +76,7 @@ class TokenBucket:
                 await asyncio.sleep(wait_time)
 
                 # Refill after waiting
-                self._tokens = min(
-                    self.capacity,
-                    self._tokens + wait_time * self.rate
-                )
+                self._tokens = min(self.capacity, self._tokens + wait_time * self.rate)
 
             # Consume tokens
             self._tokens -= tokens
@@ -94,10 +88,7 @@ class TokenBucket:
         """Get current available tokens."""
         now = time.monotonic()
         elapsed = now - self._last_update
-        return min(
-            self.capacity,
-            self._tokens + elapsed * self.rate
-        )
+        return min(self.capacity, self._tokens + elapsed * self.rate)
 
 
 class RateLimiter:

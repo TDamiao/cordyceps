@@ -11,6 +11,7 @@ import pytest
 # Fake bot / scanner / paper engine used by tests
 # ---------------------------------------------------------------------------
 
+
 class _FakeBot:
     def __init__(self):
         self.started = False
@@ -63,6 +64,7 @@ class _FakePaperEngine:
 # Fixture: import the api_server module with a controlled env
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def api_module(monkeypatch):
     """Import src.api_server with a controlled environment."""
@@ -70,6 +72,7 @@ def api_module(monkeypatch):
     monkeypatch.setenv("PROXY_ADDRESS", "0x" + "0" * 40)
     sys.modules.pop("src.api_server", None)
     import importlib
+
     mod = importlib.import_module("src.api_server")
     return mod
 
@@ -77,6 +80,7 @@ def api_module(monkeypatch):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_health_reports_mode_database_and_websocket(api_module, monkeypatch):
@@ -138,6 +142,7 @@ async def test_lifespan_creates_single_bot_and_shuts_down(api_module, monkeypatc
 
     # Enter and exit the lifespan context
     from contextlib import asynccontextmanager
+
     @asynccontextmanager
     async def noop_lifespan(app):
         yield

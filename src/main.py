@@ -85,6 +85,7 @@ class ArbitrageBot:
 
             # Initialize Risk Manager
             from src.risk.manager import RiskManager
+
             risk_manager = RiskManager()
 
             # Initialize CTF contract for atomic merge (if enabled)
@@ -182,7 +183,11 @@ class ArbitrageBot:
                         market.token_ids,
                     )
 
-                logger.info("Market registered", condition_id=market.condition_id, tokens=len(market.token_ids))
+                logger.info(
+                    "Market registered",
+                    condition_id=market.condition_id,
+                    tokens=len(market.token_ids),
+                )
 
             # Send ONE subscription for all tokens
             if all_token_ids:
@@ -257,6 +262,7 @@ class ArbitrageBot:
             # Execute if we have an executor
             if self._executor:
                 from src.execution import execute_arbitrage
+
                 result = await execute_arbitrage(self._client, opportunity)
 
                 # Record trade

@@ -52,7 +52,7 @@ def check_balances():
     proxy_matic = get_matic(proxy_address)
     proxy_usdc = get_usdc(proxy_address)
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"👤 EOA (Signer): {eoa_address}")
     print(f"   MATIC: {eoa_matic:,.4f}  (Pays Gas)")
     print(f"   USDC:  {eoa_usdc:,.2f}")
@@ -68,11 +68,12 @@ def check_balances():
     print(f"   USDC:  {proxy_usdc:,.2f}  (Trading Capital)")
 
     if proxy_usdc < 10:
-         print("   ⚠️  LOW USDC! Send USDC (Polygon) here to trade.")
+        print("   ⚠️  LOW USDC! Send USDC (Polygon) here to trade.")
     else:
-         print("   ✅ Trading funds look good.")
+        print("   ✅ Trading funds look good.")
 
-    print("="*50 + "\n")
+    print("=" * 50 + "\n")
+
 
 if __name__ == "__main__":
     check_balances()

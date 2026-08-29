@@ -14,6 +14,7 @@ from src.scanner import Scanner
 # Scanner tests
 # ---------------------------------------------------------------------------
 
+
 class _MockMarketFetcher:
     def __init__(self, markets=None):
         self._markets = markets or []
@@ -73,6 +74,7 @@ class _MockStateManager:
 # ---------------------------------------------------------------------------
 # PaperEngine tests
 # ---------------------------------------------------------------------------
+
 
 def _make_opportunity():
     return ArbitrageOpportunity(
@@ -142,6 +144,7 @@ class TestPaperEngine:
 # ---------------------------------------------------------------------------
 # Scanner tests
 # ---------------------------------------------------------------------------
+
 
 class TestScanner:
     def test_scanner_not_running_by_default(self):

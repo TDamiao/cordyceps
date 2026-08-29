@@ -17,6 +17,7 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 # Engine / Session helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_db_url(settings: object | None = None) -> str:
     """Resolve database URL from settings, falling back to SQLite file."""
     return getattr(settings, "database_url", "sqlite:///./cordyceps.db")
@@ -40,6 +41,7 @@ def _now_ms() -> int:
 # ---------------------------------------------------------------------------
 # Core models
 # ---------------------------------------------------------------------------
+
 
 class Trade(SQLModel, table=True):
     """Persistent record of a trade execution."""
@@ -101,6 +103,7 @@ class Position(SQLModel, table=True):
 # Initialization and simple helpers
 # ---------------------------------------------------------------------------
 
+
 def init_db(settings: object | None = None, drop_existing: bool = False) -> None:
     """Create all tables defined by the models.
 
@@ -124,6 +127,7 @@ def create_session_db(settings: object | None = None) -> Session:
 # ORM convenience helpers (used by other modules)
 # ---------------------------------------------------------------------------
 
+
 def upsert_trade(session: Session, trade: Trade) -> Trade:
     """Insert or update a ``Trade`` identified by ``trade_id``."""
     existing = session.exec(select(Trade).where(Trade.trade_id == trade.trade_id)).first()
@@ -140,7 +144,9 @@ def upsert_trade(session: Session, trade: Trade) -> Trade:
     return trade
 
 
-def list_recent_trades(session: Session, limit: int = 50, after_ts: int | None = None) -> list[Trade]:
+def list_recent_trades(
+    session: Session, limit: int = 50, after_ts: int | None = None
+) -> list[Trade]:
     """Retrieve recent trades, optionally filtered by a timestamp threshold."""
     stmt = select(Trade).order_by(desc(Trade.timestamp))
     if after_ts is not None:
@@ -169,7 +175,9 @@ def upsert_opportunity(session: Session, opp: Opportunity) -> Opportunity:
     return opp
 
 
-def list_opportunities(session: Session, limit: int = 50, status: str | None = None) -> list[Opportunity]:
+def list_opportunities(
+    session: Session, limit: int = 50, status: str | None = None
+) -> list[Opportunity]:
     """List stored opportunities, optionally filtered by ``status``."""
     stmt = select(Opportunity).order_by(desc(Opportunity.timestamp))
     if status:
