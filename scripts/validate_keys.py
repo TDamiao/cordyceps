@@ -54,8 +54,8 @@ def validate_env_vars() -> bool:
         print_result("PRIVATE_KEY", False, "Must start with '0x'")
         all_valid = False
     # elif len(private_key) != 66:
-        # print_result("PRIVATE_KEY", False, f"Invalid length: {len(private_key)} (expected 66)")
-        # all_valid = False
+    # print_result("PRIVATE_KEY", False, f"Invalid length: {len(private_key)} (expected 66)")
+    # all_valid = False
     else:
         print_result("PRIVATE_KEY", True, "Format valid (value intentionally hidden)")
 

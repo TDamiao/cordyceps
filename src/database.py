@@ -33,7 +33,9 @@ def get_engine(settings: object | None = None):
 @lru_cache(maxsize=8)
 def _engine_for_url(url: str):
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, echo=False, future=True, pool_pre_ping=True, connect_args=connect_args)
+    return create_engine(
+        url, echo=False, future=True, pool_pre_ping=True, connect_args=connect_args
+    )
 
 
 def get_session(settings: object | None = None, expire_on_commit: bool = False) -> Session:

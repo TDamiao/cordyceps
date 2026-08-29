@@ -166,9 +166,7 @@ class ArbitrageEngine:
             )
             if raw > 0:
                 self._metrics["buy_opportunities_raw"] += 1
-                self._record_closest_raw(
-                    market_id, SignalType.BUY_SET, order_books, raw, "ask"
-                )
+                self._record_closest_raw(market_id, SignalType.BUY_SET, order_books, raw, "ask")
         if bid_sum is not None:
             self._sell_sum_total += bid_sum
             self._metrics["avg_sell_bid_sum"] = float(self._sell_sum_total / count)
@@ -178,9 +176,7 @@ class ArbitrageEngine:
             )
             if raw > 0:
                 self._metrics["sell_opportunities_raw"] += 1
-                self._record_closest_raw(
-                    market_id, SignalType.SELL_SET, order_books, raw, "bid"
-                )
+                self._record_closest_raw(market_id, SignalType.SELL_SET, order_books, raw, "bid")
 
         buy_opp = self._check_buy_set(market_id, order_books)
         if buy_opp and buy_opp.is_profitable:
@@ -230,12 +226,12 @@ class ArbitrageEngine:
             self._metrics["best_net_profit_seen"], float(opportunity.net_profit)
         )
         row = {
-                "market_id": opportunity.market_id,
-                "signal": opportunity.signal_type.value,
-                "net_edge": float(opportunity.net_edge),
-                "net_profit": float(opportunity.net_profit),
-                "timestamp": opportunity.timestamp,
-            }
+            "market_id": opportunity.market_id,
+            "signal": opportunity.signal_type.value,
+            "net_edge": float(opportunity.net_edge),
+            "net_profit": float(opportunity.net_profit),
+            "timestamp": opportunity.timestamp,
+        }
         self._closest = [
             existing
             for existing in self._closest
@@ -255,9 +251,7 @@ class ArbitrageEngine:
         gross_edge: Decimal,
         side: str,
     ) -> None:
-        levels = [
-            book.best_ask if side == "ask" else book.best_bid for book in books.values()
-        ]
+        levels = [book.best_ask if side == "ask" else book.best_bid for book in books.values()]
         if any(level is None for level in levels):
             return
         prices = [level.price for level in levels if level]
@@ -275,9 +269,7 @@ class ArbitrageEngine:
         self._closest = [
             existing
             for existing in self._closest
-            if not (
-                existing["market_id"] == market_id and existing["signal"] == signal.value
-            )
+            if not (existing["market_id"] == market_id and existing["signal"] == signal.value)
         ]
         self._closest.append(row)
         self._closest = sorted(self._closest, key=lambda item: item["net_edge"], reverse=True)[:20]

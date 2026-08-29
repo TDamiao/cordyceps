@@ -226,9 +226,9 @@ async def api_status(request: Request) -> dict[str, Any]:
         "exposure_requires_attention": _runtime.incomplete_exposure_usd > 0,
         "uptime": round(time.time() - _startup_ts, 2) if _startup_ts else 0,
         "websocket": status.get("health", {}).get("websocket_connected", False),
-        "clob_status": "healthy"
-        if status.get("health", {}).get("websocket_connected", False)
-        else "stopped",
+        "clob_status": (
+            "healthy" if status.get("health", {}).get("websocket_connected", False) else "stopped"
+        ),
         "scanner": _scanner.is_running if _scanner else False,
         "markets": status.get("active_markets", 0),
         "tokens": observer.get("tracked_tokens", 0),

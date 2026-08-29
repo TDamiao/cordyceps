@@ -114,8 +114,23 @@ class WalletService:
                 w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 5}))
                 target = Web3.to_checksum_address(address)
                 abi = [
-                    {"constant": True, "inputs": [{"name": "_owner", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}], "type": "function"},
-                    {"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "remaining", "type": "uint256"}], "type": "function"},
+                    {
+                        "constant": True,
+                        "inputs": [{"name": "_owner", "type": "address"}],
+                        "name": "balanceOf",
+                        "outputs": [{"name": "balance", "type": "uint256"}],
+                        "type": "function",
+                    },
+                    {
+                        "constant": True,
+                        "inputs": [
+                            {"name": "_owner", "type": "address"},
+                            {"name": "_spender", "type": "address"},
+                        ],
+                        "name": "allowance",
+                        "outputs": [{"name": "remaining", "type": "uint256"}],
+                        "type": "function",
+                    },
                 ]
                 # CLOB V2 collateral is pUSD. Reading USDC.e/native here makes
                 # funded V2 proxy wallets appear empty whenever the CLOB API's
@@ -132,12 +147,16 @@ class WalletService:
                     bal = c.functions.balanceOf(target).call() / 1e6
                     total_bal += bal
                     for spender in spenders:
-                        alw = c.functions.allowance(target, Web3.to_checksum_address(spender)).call() / 1e6
+                        alw = (
+                            c.functions.allowance(target, Web3.to_checksum_address(spender)).call()
+                            / 1e6
+                        )
                         if alw > max_allowance:
                             max_allowance = alw
                 return total_bal, max_allowance
             except Exception:
                 return 0.0, 0.0
+
         return await asyncio.to_thread(_check)
 
     async def refresh(self, token_ids: list[str] | None = None) -> WalletSnapshot:
@@ -175,7 +194,9 @@ class WalletService:
             target_address = self.settings.proxy_address or snap.eoa_address
             if clob_bal == 0.0 and target_address:
                 try:
-                    onchain_bal, onchain_allowance = await self._fetch_onchain_balance(target_address)
+                    onchain_bal, onchain_allowance = await self._fetch_onchain_balance(
+                        target_address
+                    )
                     if onchain_bal > 0:
                         clob_bal = onchain_bal
                     if onchain_allowance > 0 and clob_allowance == 0.0:
@@ -186,7 +207,12 @@ class WalletService:
             snap.collateral_balance = clob_bal
             snap.collateral_allowance = clob_allowance
             snap.authenticated = True
-            logger.info("wallet.refreshed", raw_collateral=collateral, balance=clob_bal, allowance=clob_allowance)
+            logger.info(
+                "wallet.refreshed",
+                raw_collateral=collateral,
+                balance=clob_bal,
+                allowance=clob_allowance,
+            )
         except Exception as exc:
             snap.error = str(exc)
             logger.warning("wallet refresh exception", error=str(exc))
@@ -265,7 +291,11 @@ class ReadinessService:
             self.wallet.client = getattr(self.bot, "_client", self.wallet.client)
             await self.wallet.refresh()
         checks["clob_authentication"] = {
-            "status": "ok" if (self.wallet.snapshot.authenticated or bool(settings.private_key)) else "blocked"
+            "status": (
+                "ok"
+                if (self.wallet.snapshot.authenticated or bool(settings.private_key))
+                else "blocked"
+            )
         }
 
         def _check_rpc():
