@@ -346,10 +346,14 @@ class MarketWebSocket:
             if self.on_book_update:
                 self.on_book_update(asset_id, data)
         elif event_type == "price_change":
-            # price_change contains a list of per-asset changes. Pass the
-            # market message through for observers that know how to apply it.
             if self.on_book_update:
-                self.on_book_update(asset_id, data)
+                for change in data.get("price_changes", []):
+                    change_asset_id = change.get("asset_id", "")
+                    if change_asset_id:
+                        self.on_book_update(
+                            change_asset_id,
+                            {"changes": [change], "timestamp": data.get("timestamp")},
+                        )
         elif event_type == "trade":
             if self.on_trade:
                 self.on_trade(asset_id, data)
