@@ -217,18 +217,14 @@ class WebSocketClient:
             if isinstance(message, str):
                 stripped = message.strip()
                 if stripped and stripped[0] not in "[{\"":
-                    logger.warning(
-                        "Received websocket text response", message=stripped[:100]
-                    )
+                    logger.warning("Received websocket text response", message=stripped[:100])
                     continue
 
             try:
                 data = json.loads(message)
                 await self._process_message(data)
             except json.JSONDecodeError:
-                logger.warning(
-                    "Received non-JSON websocket message", message=str(message)[:100]
-                )
+                logger.warning("Received non-JSON websocket message", message=str(message)[:100])
             except Exception as e:
                 logger.error("Error processing message", error=str(e))
 
@@ -268,9 +264,7 @@ class WebSocketClient:
 
     async def _reconnect(self) -> None:
         if self._reconnect_attempts >= self.config.max_reconnect_attempts:
-            logger.error(
-                "Max reconnection attempts reached", attempts=self._reconnect_attempts
-            )
+            logger.error("Max reconnection attempts reached", attempts=self._reconnect_attempts)
             self._running = False
             return
 
@@ -362,8 +356,4 @@ class MarketWebSocket:
         elif event_type == "last_trade_price":
             pass
         else:
-            logger.debug(
-                "Unknown event type",
-                event_type=event_type,
-                keys=list(data.keys())[:5],
-            )
+            logger.debug("Unknown event type", event_type=event_type, keys=list(data.keys())[:5])
