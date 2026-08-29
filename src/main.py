@@ -38,7 +38,6 @@ class ArbitrageBot:
         self._settings = get_settings()
         setup_logging()
 
-        # Initialize components
         self._client: PolymarketClient | None = None
         self._observer: MarketObserver | None = None
         self._engine = ArbitrageEngine()
@@ -46,57 +45,56 @@ class ArbitrageBot:
         self._settlement: SettlementAgent | None = None
         self._position_monitor: PositionMonitor | None = None
 
-        # Metrics and monitoring
         self._metrics = MetricsTracker(
             persist_path=Path("data/trades.json"),
         )
         self._health = HealthMonitor(self._metrics)
 
-        # Market data
         self._fetcher = MarketFetcher()
         self._active_markets: dict[str, list[str]] = {}
 
-        # Control
         self._running = False
         self._shutdown_event = asyncio.Event()
 
     async def initialize(self) -> bool:
-        """
-        Initialize all components.
-
-        Returns:
-            True if initialization succeeded
-        """
+        """Initialize all components."""
         try:
-            logger.info("Initializing arbitrage bot...")
+            logger.info(
+                "Initializing arbitrage bot...",
+                mode=self._settings.trading_mode,
+            )
 
-            # Create authenticated client
-            auth_result = authenticate()
-            self._client = PolymarketClient(auth_result)
+            # Paper mode must be completely wallet-free. Public CLOB market
+            # data is enough for order books and simulated execution.
+            if self._settings.trading_mode == "paper":
+                self._client = PolymarketClient(public_only=True)
+                logger.info("Paper mode: authentication skipped")
+                auth_address = None
+            else:
+                auth_result = authenticate()
+                self._client = PolymarketClient(auth_result)
+                auth_address = auth_result.eoa_address
 
-            # Initialize observer with callbacks
             self._observer = MarketObserver(
                 on_book_update=self._on_book_update,
                 on_opportunity=self._on_opportunity_detected,
             )
 
-            # Initialize executor with rate limiting
             rate_limiter = RateLimiter()
 
-            # Initialize Risk Manager
             from src.risk.manager import RiskManager
 
             risk_manager = RiskManager()
 
-            # Initialize CTF contract for atomic merge (if enabled)
+            # On-chain merge requires a signing key and must never initialize
+            # in paper mode, even when USE_ATOMIC_MERGE=true.
             ctf_contract = None
-            if self._settings.use_atomic_merge:
+            if self._settings.trading_mode == "live" and self._settings.use_atomic_merge:
                 try:
                     from web3 import Web3
 
                     from src.contracts import CTF_ADDRESS, CTFContract
 
-                    # Initialize Web3
                     w3 = Web3(Web3.HTTPProvider(self._settings.polygon_rpc_url))
 
                     ctf_contract = CTFContract(
@@ -109,6 +107,8 @@ class ArbitrageBot:
                 except Exception as e:
                     logger.error("Failed to initialize CTF contract", error=str(e))
                     logger.warning("Atomic merge disabled due to initialization error")
+            elif self._settings.trading_mode == "paper":
+                logger.info("Paper mode: atomic merge disabled")
 
             self._executor = OrderExecutor(
                 client=self._client,
@@ -117,19 +117,20 @@ class ArbitrageBot:
                 risk_manager=risk_manager,
             )
 
-            # Initialize settlement (only if not dry run)
-            if not self._settings.dry_run:
+            # Settlement is a live-only subsystem.
+            if self._settings.trading_mode == "live" and not self._settings.dry_run:
                 self._settlement = SettlementAgent(
                     private_key=self._settings.private_key,
                     dry_run=False,
                 )
                 self._position_monitor = PositionMonitor(self._settlement)
             else:
-                logger.info("Settlement disabled in dry-run mode")
+                logger.info("Settlement disabled", mode=self._settings.trading_mode)
 
             logger.info(
                 "Bot initialized",
-                address=auth_result.eoa_address,
+                address=auth_address,
+                mode=self._settings.trading_mode,
                 dry_run=self._settings.dry_run,
             )
             return True
@@ -148,10 +149,9 @@ class ArbitrageBot:
         self._health.set_websocket_status(False)
 
         try:
-            # Fetch active markets
             logger.info("Fetching active markets...")
             markets = await self._fetcher.fetch_markets(
-                active_only=False,  # Include all markets for now
+                active_only=False,
                 binary_only=True,
             )
 
@@ -161,22 +161,17 @@ class ArbitrageBot:
 
             logger.info("Found active markets", count=len(markets))
 
-            # Start observer first before subscribing
             observer_task = asyncio.create_task(self._run_observer())
 
-            # Give WebSocket time to connect
             await asyncio.sleep(1)
 
-            # Collect all tokens for batch subscription
             all_token_ids = []
 
-            for market in markets[:50]:  # Limit to top 50 markets
-                # Register market in state manager
+            for market in markets[:50]:
                 self._observer.state.register_market(market.condition_id, market.token_ids)
                 self._active_markets[market.condition_id] = market.token_ids
                 all_token_ids.extend(market.token_ids)
 
-                # Add to position monitor
                 if self._position_monitor:
                     self._position_monitor.add_market(
                         market.condition_id,
@@ -189,21 +184,17 @@ class ArbitrageBot:
                     tokens=len(market.token_ids),
                 )
 
-            # Send ONE subscription for all tokens
             if all_token_ids:
                 await self._observer._ws.subscribe(all_token_ids)
                 logger.info("Subscribed to all markets", total_tokens=len(all_token_ids))
 
-            # Start subsystems
             tasks = [observer_task]
 
             if self._position_monitor:
                 tasks.append(asyncio.create_task(self._position_monitor.start()))
 
-            # Wait for shutdown
             await self._shutdown_event.wait()
 
-            # Cancel tasks
             for task in tasks:
                 task.cancel()
 
@@ -227,7 +218,6 @@ class ArbitrageBot:
 
     def _on_book_update(self, token_id: str, book) -> None:
         """Handle order book update."""
-        # The MarketObserver already updates state manager
         pass
 
     async def _on_opportunity_detected(
@@ -235,18 +225,11 @@ class ArbitrageBot:
         condition_id: str,
         order_books: dict,
     ) -> None:
-        """
-        Handle detected arbitrage opportunity.
-
-        Args:
-            condition_id: Market condition ID
-            order_books: Order books for all outcomes
-        """
+        """Handle detected arbitrage opportunity."""
         if not self._running:
             return
 
         try:
-            # Analyze for opportunity
             opportunity = self._engine.analyze_market(condition_id, order_books)
 
             if not opportunity:
@@ -259,13 +242,20 @@ class ArbitrageBot:
                 profit=str(opportunity.net_profit),
             )
 
-            # Execute if we have an executor
             if self._executor:
-                from src.execution import execute_arbitrage
+                if self._settings.trading_mode == "paper":
+                    from src.execution.paper import PaperSimulator
 
-                result = await execute_arbitrage(self._client, opportunity)
+                    simulator = PaperSimulator(
+                        latency_ms=self._settings.simulated_latency_ms,
+                        log_path="data/paper_trades.jsonl",
+                    )
+                    result = await simulator.execute(opportunity)
+                else:
+                    from src.execution import execute_arbitrage
 
-                # Record trade
+                    result = await execute_arbitrage(self._client, opportunity)
+
                 self._metrics.create_trade_record(
                     market_id=condition_id,
                     signal_type=opportunity.signal_type.value,
@@ -322,7 +312,6 @@ def main():
     """Main entry point."""
     bot = ArbitrageBot()
 
-    # Handle shutdown signals
     def signal_handler(sig, frame):
         logger.info("Shutdown signal received")
         bot.shutdown()
@@ -330,7 +319,6 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # Run bot
     try:
         asyncio.run(bot.start())
     except KeyboardInterrupt:
