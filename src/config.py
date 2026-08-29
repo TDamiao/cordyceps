@@ -1,13 +1,19 @@
-"""
-Configuration module for Polymarket Arbitrage Bot.
+"""Configuration for Cordyceps - Polymarket Arbitrage Engine.
 
-Loads settings from environment variables with validation using Pydantic.
+This module keeps compatibility with the existing codebase while adding:
+- explicit paper/live mode guard
+- risk limits
+- database URL
+- API endpoints
+- no private key requirement for paper mode
 """
+
+from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,218 +27,173 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # =========================================================================
-    # Authentication
-    # =========================================================================
-    private_key: str = Field(
-        ...,
-        description="EOA private key for L1 authentication (hex string starting with 0x)",
-    )
-    proxy_address: str = Field(
-        ...,
-        description="Polymarket Proxy Wallet Address (Gnosis Safe)",
-    )
+    # ---------------------------------------------------------------------
+    # App / mode
+    # ---------------------------------------------------------------------
+    app_name: str = Field(default="Cordyceps")
+    environment: str = Field(default="production")
+    port: int = Field(default=8000, ge=1, le=65535)
 
-    # Optional L2 credentials (auto-derived if not set)
-    clob_api_key: str | None = Field(default=None, description="CLOB API Key")
-    clob_api_secret: str | None = Field(default=None, description="CLOB API Secret")
-    clob_api_passphrase: str | None = Field(default=None, description="CLOB API Passphrase")
+    trading_mode: Literal["paper", "live"] = Field(default="paper")
+    live_trading_enabled: bool = Field(default=False)
+    kill_switch: bool = Field(default=False)
+    dry_run: bool = Field(default=True)
 
-    # =========================================================================
-    # Network Configuration
-    # =========================================================================
-    polygon_rpc_url: str = Field(
-        default="https://polygon-rpc.com",
-        description="Polygon RPC URL for contract interactions",
-    )
-    chain_id: int = Field(
-        default=137,
-        description="Chain ID (137 = Polygon Mainnet)",
-    )
+    # ---------------------------------------------------------------------
+    # Persistence / endpoints
+    # ---------------------------------------------------------------------
+    database_url: str = Field(default="sqlite:///./cordyceps.db")
+    polygon_rpc_url: str = Field(default="https://polygon-rpc.com")
+    gamma_api_url: str = Field(default="https://gamma-api.polymarket.com")
+    clob_api_url: str = Field(default="https://clob.polymarket.com")
+    clob_ws_url: str = Field(default="wss://ws-subscriptions-clob.polymarket.com/ws/market")
+    chain_id: int = Field(default=137)
 
-    # =========================================================================
-    # Trading Configuration
-    # =========================================================================
-    min_profit_threshold: float = Field(
-        default=0.005,
-        ge=0.0,
-        le=0.5,
-        description="Minimum profit threshold as decimal (0.005 = 0.5%)",
-    )
-    max_position_size: float = Field(
-        default=100.0,
-        gt=0.0,
-        description="Maximum position size per trade in USDC",
-    )
-    dry_run: bool = Field(
-        default=True,
-        description="If True, log trades without executing",
-    )
-    
-    # =========================================================================
-    # HFT / Atomic Merge Settings
-    # =========================================================================
-    use_atomic_merge: bool = Field(
-        default=True,
-        description="If True, use mergePositions() for instant profit capture",
-    )
-    max_gas_price_gwei: float = Field(
-        default=100.0,
-        gt=0.0,
-        description="Maximum gas price in gwei for merge transactions",
-    )
-    min_profit_vs_gas_ratio: float = Field(
-        default=2.0,
-        ge=1.0,
-        description="Minimum ratio of profit to gas cost (e.g., 2.0 = profit must be 2x gas)",
-    )
+    # ---------------------------------------------------------------------
+    # Risk management
+    # ---------------------------------------------------------------------
+    max_trade_usd: float = Field(default=1.0, gt=0)
+    max_total_exposure_usd: float = Field(default=5.0, gt=0)
+    max_daily_loss_usd: float = Field(default=1.0, gt=0)
+    max_slippage_pct: float = Field(default=0.005, ge=0)
+    max_position_size: float = Field(default=100.0, gt=0)
+    min_profit_threshold: float = Field(default=0.005, ge=0.0)
+    # Trade-quality limits
+    min_trade_shares: float = Field(default=1.0, gt=0)
+    min_net_edge: float = Field(default=0.01, ge=0)
+    min_net_profit_usd: float = Field(default=0.01, ge=0)
+    # Book-freshness guard
+    orderbook_stale_ms: int = Field(default=3000, ge=0)
+    simulated_latency_ms: int = Field(default=250, ge=0)
+    circuit_breaker_failure_threshold: int = Field(default=5, ge=1)
+    circuit_breaker_cooldown_minutes: int = Field(default=15, ge=1)
 
-    # =========================================================================
-    # Risk Management Settings
-    # =========================================================================
-    max_daily_loss: float = Field(
-        default=50.0,
-        gt=0.0,
-        description="Maximum allowed daily loss in USDC before stopping",
-    )
-    circuit_breaker_failure_threshold: int = Field(
-        default=5,
-        ge=1,
-        description="Number of consecutive failures before pausing trading",
-    )
-    circuit_breaker_cooldown_minutes: int = Field(
-        default=15,
-        ge=1,
-        description="Minutes to pause trading after circuit breaker triggers",
-    )
-    max_slippage_tolerance: float = Field(
-        default=0.02,
-        ge=0.0,
-        le=0.1,
-        description="Maximum slippage tolerance (e.g., 0.02 = 2%)",
-    ) # Not explicitly in plan but useful for slippage check logic
+    # ---------------------------------------------------------------------
+    # Optional auth material
+    # ---------------------------------------------------------------------
+    private_key: str = Field(default="")
+    proxy_address: str = Field(default="")
+    polymarket_api_key: str = Field(default="")
+    polymarket_api_secret: str = Field(default="")
+    polymarket_api_passphrase: str = Field(default="")
 
-    # =========================================================================
+    # ---------------------------------------------------------------------
     # Logging
-    # =========================================================================
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
-        default="INFO",
-        description="Logging level",
-    )
-    log_format: Literal["json", "console"] = Field(
-        default="console",
-        description="Log output format",
-    )
+    # ---------------------------------------------------------------------
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO")
+    log_format: Literal["json", "console"] = Field(default="console")
 
-    # =========================================================================
-    # Validators
-    # =========================================================================
+    @model_validator(mode="after")
+    def validate_mode(self):
+        """Enforce live-mode safety guard."""
+        if self.trading_mode == "live":
+            if not self.live_trading_enabled:
+                raise ValueError("LIVE_TRADING_ENABLED=true is required when TRADING_MODE=live")
+            if not self.private_key:
+                raise ValueError("PRIVATE_KEY is required when TRADING_MODE=live")
+            if not self.proxy_address:
+                raise ValueError("PROXY_ADDRESS is required when TRADING_MODE=live")
+            if self.dry_run:
+                raise ValueError("DRY_RUN must be false when TRADING_MODE=live")
+        else:
+            if self.live_trading_enabled:
+                raise ValueError("LIVE_TRADING_ENABLED must be false when TRADING_MODE=paper")
+        return self
+
     @field_validator("private_key")
     @classmethod
     def validate_private_key(cls, v: str) -> str:
-        """Validate private key format."""
+        """Validate private key format when supplied."""
+        if not v:
+            return v
         if not v.startswith("0x"):
             raise ValueError("Private key must start with '0x'")
-        if len(v) != 66:  # 0x + 64 hex chars
+        if len(v) != 66:
             raise ValueError("Private key must be 66 characters (0x + 64 hex)")
         try:
             int(v, 16)
-        except ValueError:
-            raise ValueError("Private key must be valid hexadecimal")
+        except ValueError as exc:
+            raise ValueError("Private key must be valid hexadecimal") from exc
         return v
 
     @field_validator("proxy_address")
     @classmethod
     def validate_proxy_address(cls, v: str) -> str:
-        """Validate Ethereum address format."""
+        """Validate Ethereum address format when supplied."""
+        if not v:
+            return v
         if not v.startswith("0x"):
             raise ValueError("Proxy address must start with '0x'")
-        if len(v) != 42:  # 0x + 40 hex chars
+        if len(v) != 42:
             raise ValueError("Proxy address must be 42 characters (0x + 40 hex)")
         try:
             int(v, 16)
-        except ValueError:
-            raise ValueError("Proxy address must be valid hexadecimal")
+        except ValueError as exc:
+            raise ValueError("Proxy address must be valid hexadecimal") from exc
         return v
 
+    # ------------------------------------------------------------------
+    # Compatibility aliases used by the existing codebase
+    # ------------------------------------------------------------------
+    @property
+    def max_daily_loss(self) -> float:
+        return self.max_daily_loss_usd
 
-# =============================================================================
-# API Endpoints (Constants)
-# =============================================================================
+    @property
+    def max_slippage_tolerance(self) -> float:
+        return self.max_slippage_pct
+
+    @property
+    def max_position_size_usd(self) -> float:
+        return self.max_position_size
+
+    @property
+    def circuit_breaker_failure_threshold_value(self) -> int:
+        return self.circuit_breaker_failure_threshold
+
+    @property
+    def circuit_breaker_cooldown_minutes_value(self) -> int:
+        return self.circuit_breaker_cooldown_minutes
+
+    @property
+    def polygon_rpc(self) -> str:
+        return self.polygon_rpc_url
+
 
 class Endpoints:
     """Polymarket API endpoints."""
 
-    # CLOB API
     CLOB_HOST = "https://clob.polymarket.com"
     CLOB_WS = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
-
-    # Gamma Markets API
     GAMMA_API = "https://gamma-api.polymarket.com"
-
-    # Data API
     DATA_API = "https://data-api.polymarket.com"
 
-
-# =============================================================================
-# Contract Addresses (Polygon Mainnet)
-# =============================================================================
 
 class Contracts:
     """Smart contract addresses on Polygon."""
 
-    # USDC on Polygon
     USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-
-    # Conditional Token Framework (CTF)
     CTF = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
-
-    # CTF Exchange
     CTF_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8ED4093"
-
-    # NegRisk Adapter
     NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"
-
-    # NegRisk CTF Exchange
     NEG_RISK_CTF_EXCHANGE = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
-
-    # Proxy Wallet Factory
     PROXY_FACTORY = "0xaB45c5A4B0c941a2F231C04C3f49182e1A254052"
 
-
-# =============================================================================
-# Trading Constants
-# =============================================================================
 
 class TradingConfig:
     """Trading-related constants."""
 
-    # Fee structure (as of documentation)
-    TAKER_FEE = 0.0001  # 0.01% (1 basis point)
-    MAKER_FEE = 0.0     # 0% for makers
-
-    # Order types
-    ORDER_TYPE_GTC = "GTC"  # Good Till Cancelled
-    ORDER_TYPE_FOK = "FOK"  # Fill Or Kill
-    ORDER_TYPE_GTD = "GTD"  # Good Till Date
-
-    # Signature types
-    SIGNATURE_TYPE_EOA = 0      # Direct EOA signature
-    SIGNATURE_TYPE_POLY = 1     # Polymarket Proxy Wallet
-
-    # Binary market partition (Yes/No)
+    TAKER_FEE = 0.0001
+    MAKER_FEE = 0.0
+    ORDER_TYPE_GTC = "GTC"
+    ORDER_TYPE_FOK = "FOK"
+    ORDER_TYPE_GTD = "GTD"
+    SIGNATURE_TYPE_EOA = 0
+    SIGNATURE_TYPE_POLY = 1
     BINARY_PARTITION = [1, 2]
 
 
-# =============================================================================
-# Singleton Settings Instance
-# =============================================================================
-
 @lru_cache
 def get_settings() -> Settings:
-    """
-    Get cached settings instance.
-
-    Uses lru_cache to ensure settings are loaded only once.
-    """
+    """Get cached settings instance."""
     return Settings()

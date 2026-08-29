@@ -1,64 +1,73 @@
 # syntax=docker/dockerfile:1
 
-# Polymarket Arbitrage Bot
-# Multi-stage build for minimal production image
+# Cordyceps – Polymarket Arbitrage Engine
+# Multi-stage: build → slim production image (non-root, healthcheck)
 
-# ===== Build Stage =====
-FROM python:3.12-slim AS builder
+# =====================================================================
+# Build stage – install deps into wheels for layer caching
+# =====================================================================
+FROM python:3.13-slim AS builder
 
-WORKDIR /app
+WORKDIR /build
 
-# Install build dependencies
+# Install build-time system deps (gcc for C extensions)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
+    gcc libffi-dev pkg-config && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY pyproject.toml ./
+# Copy dependency manifests first (cacheable layer)
+COPY pyproject.toml requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip wheel --no-cache-dir --wheel-dir /app/wheels -e .
+    pip wheel --no-cache-dir --wheel-dir /wheels -e . 2>/dev/null || \
+    pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
-# ===== Production Stage =====
-FROM python:3.12-slim AS production
+# =====================================================================
+# Production stage – minimal runtime image
+# =====================================================================
+FROM python:3.13-slim AS production
 
-# Labels
-LABEL maintainer="polymarket-bot"
-LABEL description="Polymarket Arbitrage Bot"
+LABEL maintainer="cordyceps-bot"
+LABEL description="Cordyceps Polymarket Arbitrage Engine"
 LABEL version="0.1.0"
+LABEL org.opencontainers.image.source="https://github.com/your-org/cordyceps"
 
-# Create non-root user for security
-RUN groupadd -r botuser && useradd -r -g botuser botuser
+# Non-root user for security
+RUN groupadd -r botuser && useradd -r -g botuser -d /app -s /sbin/nologin botuser
+
+# Runtime deps only (curl for healthcheck)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+# Wheels from builder
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
 WORKDIR /app
 
-# Install runtime dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy wheels from builder and install
-COPY --from=builder /app/wheels /wheels
-RUN pip install --no-cache-dir /wheels/*
-
-# Copy application code
+# Application code (copy only what's needed at runtime)
 COPY src/ ./src/
 COPY pyproject.toml ./
 
-# Create data directory for persistence
-RUN mkdir -p /app/data && chown -R botuser:botuser /app
+# Data directories (mounted volume targets)
+RUN mkdir -p /app/data /app/logs && \
+    chown -R botuser:botuser /app
 
 # Switch to non-root user
 USER botuser
 
-# Environment variables
+# Environment defaults
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV LOG_FORMAT=json
+ENV TRADING_MODE=paper
+ENV DATABASE_URL=sqlite:///./cordyceps.db
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)" || exit 1
+# Health check – waits for start_period before first probe
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:${PORT:-8000}/health || exit 1
 
-# Default command
-CMD ["python", "-m", "src.main"]
+EXPOSE 8000
+
+CMD ["python", "-m", "uvicorn", "src.api_server:app", "--host", "0.0.0.0", "--port", "8000"]

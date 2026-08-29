@@ -1,45 +1,100 @@
-# Polymarket Arbitrage Bot - Docker Compose
-# For local development and testing
+# Cordyceps – Docker Compose
+# Local development and production deployment
 
 services:
+  # =================================================================
+  # Application
+  # =================================================================
   bot:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
-    container_name: polymarket-bot
+    container_name: cordyceps-bot
     restart: unless-stopped
     env_file:
       - .env
     environment:
       - LOG_FORMAT=json
       - PYTHONUNBUFFERED=1
+      - TRADING_MODE=${TRADING_MODE:-paper}
+      - DATABASE_URL=postgresql+psycopg://cordyceps:${POSTGRES_PASSWORD:-cordyceps}@postgres:5432/cordyceps
+      - PORT=8000
+    ports:
+      - "${PORT:-8000}:8000"
     volumes:
-      # Persist trade history
-      - ./data:/app/data
+      - bot_data:/app/data
+      - bot_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
-      - botnet
+      - cordyceps
     healthcheck:
-      test: ["CMD", "python", "-c", "print('ok')"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # Optional: Local monitoring with Prometheus
-  # prometheus:
-  #   image: prom/prometheus:latest
-  #   container_name: prometheus
-  #   volumes:
-  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-  #   ports:
-  #     - "9090:9090"
-  #   networks:
-  #     - botnet
+  # =================================================================
+  # PostgreSQL
+  # =================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: cordyceps-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cordyceps
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cordyceps}
+      POSTGRES_DB: cordyceps
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - cordyceps
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cordyceps"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
-  botnet:
+  cordyceps:
     driver: bridge
 
 volumes:
-  data:
+  pgdata:
+    driver: local
+  bot_data:
+    driver: local
+  bot_logs:
+    driver: local

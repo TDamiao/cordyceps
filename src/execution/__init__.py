@@ -7,6 +7,7 @@ from src.execution.executor import (
     OrderStatus,
     execute_arbitrage,
 )
+from src.execution.paper import PaperSimulator
 from src.execution.rate_limiter import (
     RateLimitConfig,
     RateLimiter,
@@ -24,4 +25,5 @@ __all__ = [
     "RateLimitConfig",
     "RateLimiter",
     "TokenBucket",
+    "PaperSimulator",
 ]

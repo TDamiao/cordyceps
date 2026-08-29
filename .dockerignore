@@ -1,0 +1,66 @@
+# =============================================================================
+# Cordyceps – Docker Build Context Exclusions
+# =============================================================================
+
+# Version control
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files (never ship secrets)
+.env
+.env.*
+!.env.example
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Type checking
+.mypy_cache/
+
+# Local data / databases
+*.db
+*.sqlite
+cordyceps.db
+data/
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed at runtime)
+docs/
+README.md
+LICENSE
+
+# Node (if any tooling uses it)
+node_modules/
+
+# Dockploy config
+dockploy.yml

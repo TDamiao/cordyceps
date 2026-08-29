@@ -19,6 +19,7 @@ from src.client.models import (
     TradeResult,
     TradingSignal,
 )
+from src.database import Opportunity, Trade, create_session_db, get_engine, get_session, init_db
 
 __all__ = [
     # Auth
@@ -39,4 +40,11 @@ __all__ = [
     "Position",
     "TradeResult",
     "TradingSignal",
+    # Database
+    "Trade",
+    "Opportunity",
+    "create_session_db",
+    "get_engine",
+    "get_session",
+    "init_db",
 ]
