@@ -99,7 +99,10 @@ class WalletService:
     @staticmethod
     def _units(value: Any) -> float:
         try:
-            return float(value or 0) / 1_000_000
+            val = float(value or 0)
+            if val > 100_000:
+                return val / 1_000_000
+            return val
         except Exception:
             return 0.0
 
