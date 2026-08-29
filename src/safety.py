@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
+import structlog
 from sqlalchemy import text
 from sqlmodel import Session
 from web3 import Web3
@@ -16,6 +17,8 @@ from src.client.auth import derive_eoa_address
 from src.config import Settings
 from src.database import get_engine
 from src.runtime import RuntimeState
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
