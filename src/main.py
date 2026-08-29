@@ -295,9 +295,11 @@ class ArbitrageBot:
 
     def get_status(self) -> dict:
         """Get current bot status."""
+        observer_stats = self._observer.state.stats if self._observer else {}
         return {
             "running": self._running,
             "health": self._health.get_health().to_dict(),
+            "observer_stats": observer_stats,
             "engine_stats": self._engine.stats,
             "executor_stats": self._executor.stats if self._executor else {},
             "active_markets": len(self._active_markets),
