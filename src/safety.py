@@ -403,16 +403,16 @@ class ReadinessService:
         allowance = self.wallet.snapshot.collateral_allowance
         ctf_allowance = self.wallet.snapshot.ctf_allowance
         checks["balance"] = {
-            "status": "ok"
-            if balance is not None and balance >= settings.max_trade_usd
-            else "blocked",
+            "status": (
+                "ok" if balance is not None and balance >= settings.max_trade_usd else "blocked"
+            ),
             "value": balance if balance is not None else 0.0,
             "required": settings.max_trade_usd,
         }
         checks["usdc_allowance"] = {
-            "status": "ok"
-            if allowance is not None and allowance >= settings.max_trade_usd
-            else "blocked",
+            "status": (
+                "ok" if allowance is not None and allowance >= settings.max_trade_usd else "blocked"
+            ),
             "value": allowance if allowance is not None else 0.0,
             "required": settings.max_trade_usd,
             "unlimited": self.wallet.snapshot.collateral_allowance_unlimited,
