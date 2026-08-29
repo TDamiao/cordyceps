@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cordyceps Operations</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+</head>
+<body>
+  <header>
+    <div><span class="eyebrow">POLYMARKET ARBITRAGE SYSTEM</span><h1>CORDYCEPS</h1></div>
+    <div class="header-actions"><span id="mode" class="pill">PAPER</span><span id="health" class="pill neutral">STARTING</span><form method="post" action="/logout"><button class="ghost">Logout</button></form></div>
+  </header>
+
+  <main>
+    <div id="attention" class="attention hidden">EXPOSURE REQUIRES ATTENTION</div>
+    <section class="grid hero-grid">
+      <article class="card"><h2>System</h2><div id="systemMetrics" class="metrics"></div></article>
+      <article class="card"><h2>Strategy</h2><div id="strategyMetrics" class="metrics"></div></article>
+      <article class="card"><h2>Wallet</h2><div id="walletMetrics" class="metrics"></div><button id="refreshWallet">Refresh wallet</button></article>
+      <article class="card danger-card"><h2>Controls</h2><div id="controlState" class="metrics"></div><div class="button-row"><button id="kill" class="danger">Kill switch</button><button id="resume" class="ghost">Resume</button><button id="arm">Arm live test</button></div></article>
+    </section>
+
+    <section class="card readiness"><div class="section-title"><div><span class="eyebrow">PRE-FLIGHT</span><h2>Live Readiness</h2></div><button id="runReadiness">Run checks</button></div><div id="readinessSummary"></div><div id="readinessChecks" class="checks"></div></section>
+
+    <section class="card"><div class="section-title"><div><span class="eyebrow">LIVE CONFIGURATION</span><h2>Risk &amp; Strategy</h2></div><button id="saveConfig">Save parameters</button></div><p class="muted">Profile: Live Test - $10 Wallet. Changes are validated and applied without container restart.</p><div id="configForm" class="config-grid"></div><div id="configMessage" class="message"></div></section>
+
+    <section class="grid tables-grid">
+      <article class="card"><h2>Recent Opportunities</h2><div id="opportunities" class="table-wrap"></div></article>
+      <article class="card"><h2>Recent Trades</h2><div id="trades" class="table-wrap"></div></article>
+      <article class="card"><h2>Closest Opportunities</h2><div id="closest" class="table-wrap"></div></article>
+      <article class="card"><h2>Risk Events</h2><div id="riskEvents" class="table-wrap"></div></article>
+      <article class="card wide"><h2>System Events</h2><div id="systemEvents" class="table-wrap"></div></article>
+    </section>
+  </main>
+
+  <dialog id="armDialog"><form method="dialog"><h2>Arm live trading</h2><p>This does not change mode. Readiness must pass and live remains disarmed after every restart.</p><label>Type <code>CORDYCEPS LIVE</code><input id="armConfirmation" autocomplete="off"></label><div class="button-row"><button value="cancel" class="ghost">Cancel</button><button id="confirmArm" value="default" class="danger">Arm now</button></div></form></dialog>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/assets/dashboard.js" defer></script>
+</body>
+</html>

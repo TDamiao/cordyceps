@@ -1,43 +1,72 @@
 # Cordyceps – Docker Compose
-# Production-oriented deployment for Dockploy and local Docker Compose.
+# Production-oriented deployment for Dockploy and local Docker Compose with Gluetun VPN.
 
 services:
+  gluetun:
+    image: qmcgaw/gluetun
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=nordvpn
+      - VPN_TYPE=openvpn
+      - OPENVPN_USER=${NORDVPN_SERVICE_USER}
+      - OPENVPN_PASSWORD=${NORDVPN_SERVICE_PASSWORD}
+      - SERVER_COUNTRIES=${NORDVPN_COUNTRY:-Brazil}
+    ports:
+      - "${PORT:-8000}:8000" # Exposto através do Gluetun
+    networks:
+      - cordyceps
+    restart: unless-stopped
+
   bot:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
     restart: unless-stopped
+    network_mode: "container:gluetun" # Roteia todo o tráfego de rede do bot pela VPN
     environment:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       PYTHONUNBUFFERED: "1"
       TRADING_MODE: ${TRADING_MODE:-paper}
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
+      DRY_RUN: ${DRY_RUN:-true}
       KILL_SWITCH: ${KILL_SWITCH:-false}
-      DATABASE_URL: postgresql+psycopg://cordyceps:${POSTGRES_PASSWORD}@postgres:5432/cordyceps
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://cordyceps:${POSTGRES_PASSWORD}@postgres:5432/cordyceps}
       PORT: "8000"
       MAX_TRADE_USD: ${MAX_TRADE_USD:-1}
-      MAX_TOTAL_EXPOSURE_USD: ${MAX_TOTAL_EXPOSURE_USD:-5}
+      MAX_TOTAL_EXPOSURE_USD: ${MAX_TOTAL_EXPOSURE_USD:-2}
       MAX_DAILY_LOSS_USD: ${MAX_DAILY_LOSS_USD:-1}
+      MAX_OPEN_TRADES: ${MAX_OPEN_TRADES:-1}
+      MAX_LEG_IMBALANCE_USD: ${MAX_LEG_IMBALANCE_USD:-1}
+      LEG_TIMEOUT_MS: ${LEG_TIMEOUT_MS:-2000}
+      MIN_PROFIT_THRESHOLD: ${MIN_PROFIT_THRESHOLD:-0.005}
       MIN_NET_EDGE: ${MIN_NET_EDGE:-0.01}
       MIN_NET_PROFIT_USD: ${MIN_NET_PROFIT_USD:-0.01}
       MAX_SLIPPAGE_PCT: ${MAX_SLIPPAGE_PCT:-0.005}
+      EMERGENCY_SLIPPAGE_PCT: ${EMERGENCY_SLIPPAGE_PCT:-0.01}
       ORDERBOOK_STALE_MS: ${ORDERBOOK_STALE_MS:-3000}
+      MIN_TRADE_SHARES: ${MIN_TRADE_SHARES:-1}
       SIMULATED_LATENCY_MS: ${SIMULATED_LATENCY_MS:-250}
+      MARKET_LIMIT: ${MARKET_LIMIT:-50}
+      SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-60}
       POLYGON_RPC_URL: ${POLYGON_RPC_URL:-https://polygon-rpc.com}
       CHAIN_ID: ${CHAIN_ID:-137}
+      SIGNATURE_TYPE: ${SIGNATURE_TYPE:-1}
       PRIVATE_KEY: ${PRIVATE_KEY:-}
       PROXY_ADDRESS: ${PROXY_ADDRESS:-}
       CLOB_API_KEY: ${CLOB_API_KEY:-}
       CLOB_API_SECRET: ${CLOB_API_SECRET:-}
       CLOB_API_PASSPHRASE: ${CLOB_API_PASSPHRASE:-}
-    ports:
-      - "${PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - cordyceps
+      gluetun:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s

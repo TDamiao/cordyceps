@@ -9,8 +9,10 @@ Provides:
 from __future__ import annotations
 
 import time
+from functools import lru_cache
+from typing import Any
 
-from sqlalchemy import JSON, Column, desc
+from sqlalchemy import JSON, Column, UniqueConstraint, desc, inspect, text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 # ---------------------------------------------------------------------------
@@ -25,7 +27,13 @@ def _get_db_url(settings: object | None = None) -> str:
 
 def get_engine(settings: object | None = None):
     """Create a SQLAlchemy engine bound to the resolved DB URL."""
-    return create_engine(_get_db_url(settings), echo=False, future=True)
+    return _engine_for_url(_get_db_url(settings))
+
+
+@lru_cache(maxsize=8)
+def _engine_for_url(url: str):
+    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    return create_engine(url, echo=False, future=True, pool_pre_ping=True, connect_args=connect_args)
 
 
 def get_session(settings: object | None = None, expire_on_commit: bool = False) -> Session:
@@ -76,10 +84,19 @@ class Opportunity(SQLModel, table=True):
     signal_type: str = Field(description="BUY_SET or SELL_SET")
     token_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     prices: list[float] = Field(default_factory=list, sa_column=Column(JSON))
-    net_edge: float = Field(description="Σ ask - Σ bid (edge before fees)")
-    net_profit: float = Field(description="Expected net profit in USDC")
-    max_size: float = Field(description="Maximum trade size before limits")
-    status: str = Field(default="detected", description="Current opportunity status")
+    market: str = Field(default="")
+    best_prices: list[float] = Field(default_factory=list, sa_column=Column(JSON))
+    vwap_prices: list[float] = Field(default_factory=list, sa_column=Column(JSON))
+    gross_edge: float = Field(default=0)
+    net_edge: float = Field(default=0)
+    fee: float = Field(default=0)
+    slippage: float = Field(default=0)
+    size: float = Field(default=0)
+    net_profit: float = Field(default=0)
+    max_size: float = Field(default=0)
+    decision: str = Field(default="rejected", index=True)
+    rejection_reason: str = Field(default="")
+    status: str = Field(default="detected")
     timestamp: int = Field(default_factory=_now_ms)
 
 
@@ -99,6 +116,98 @@ class Position(SQLModel, table=True):
     entry_timestamp: int = Field(default_factory=_now_ms)
 
 
+class RuntimeConfig(SQLModel, table=True):
+    """Validated non-secret operational override."""
+
+    __tablename__ = "runtime_config"
+    __table_args__ = (UniqueConstraint("key", name="uq_runtime_config_key"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    key: str = Field(index=True)
+    value: Any = Field(sa_column=Column(JSON, nullable=False))
+    updated_at: int = Field(default_factory=_now_ms)
+
+
+class Execution(SQLModel, table=True):
+    __tablename__ = "executions"
+
+    id: int | None = Field(default=None, primary_key=True)
+    execution_id: str = Field(index=True)
+    opportunity_id: int | None = Field(default=None, foreign_key="opportunities.id")
+    market_id: str = Field(default="", index=True)
+    mode: str = Field(default="paper")
+    state: str = Field(default="DETECTED", index=True)
+    filled_quantity: float = Field(default=0)
+    average_price: float = Field(default=0)
+    fees: float = Field(default=0)
+    realized_pnl: float = Field(default=0)
+    latency_ms: int = Field(default=0)
+    failure_reason: str = Field(default="")
+    created_at: int = Field(default_factory=_now_ms)
+    updated_at: int = Field(default_factory=_now_ms)
+
+
+class ExecutionLeg(SQLModel, table=True):
+    __tablename__ = "execution_legs"
+
+    id: int | None = Field(default=None, primary_key=True)
+    execution_id: str = Field(index=True)
+    token_id: str = Field(index=True)
+    side: str = Field(default="BUY")
+    status: str = Field(default="PENDING")
+    order_id: str = Field(default="")
+    requested_quantity: float = Field(default=0)
+    filled_quantity: float = Field(default=0)
+    limit_price: float = Field(default=0)
+    average_price: float = Field(default=0)
+    fees: float = Field(default=0)
+    latency_ms: int = Field(default=0)
+    error: str = Field(default="")
+    timestamp: int = Field(default_factory=_now_ms)
+
+
+class PaperTrade(SQLModel, table=True):
+    __tablename__ = "paper_trades"
+
+    id: int | None = Field(default=None, primary_key=True)
+    trade_id: str = Field(index=True)
+    market_id: str = Field(index=True)
+    signal: str = Field(default="BUY_SET")
+    token_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    size: float = Field(default=0)
+    total_cost: float = Field(default=0)
+    fees: float = Field(default=0)
+    expected_profit: float = Field(default=0)
+    realized_pnl: float = Field(default=0)
+    success: bool = Field(default=False)
+    latency_ms: int = Field(default=0)
+    timestamp: int = Field(default_factory=_now_ms)
+
+
+class RiskEvent(SQLModel, table=True):
+    __tablename__ = "risk_events"
+
+    id: int | None = Field(default=None, primary_key=True)
+    severity: str = Field(default="warning", index=True)
+    event_type: str = Field(index=True)
+    message: str
+    execution_id: str = Field(default="")
+    details: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    timestamp: int = Field(default_factory=_now_ms)
+
+
+class SystemEvent(SQLModel, table=True):
+    __tablename__ = "system_events"
+
+    id: int | None = Field(default=None, primary_key=True)
+    severity: str = Field(default="info", index=True)
+    component: str = Field(default="system", index=True)
+    event_type: str = Field(index=True)
+    message: str
+    details: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    timestamp: int = Field(default_factory=_now_ms)
+
+
 # ---------------------------------------------------------------------------
 # Initialization and simple helpers
 # ---------------------------------------------------------------------------
@@ -115,6 +224,34 @@ def init_db(settings: object | None = None, drop_existing: bool = False) -> None
     if drop_existing:
         SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
+    _migrate_opportunities(engine)
+
+
+def _migrate_opportunities(engine) -> None:
+    """Add v0.2 opportunity columns without dropping or rewriting existing rows."""
+    inspector = inspect(engine)
+    if "opportunities" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("opportunities")}
+    dialect = engine.dialect.name
+    json_type = "JSONB" if dialect == "postgresql" else "JSON"
+    additions = {
+        "market": "VARCHAR NOT NULL DEFAULT ''",
+        "best_prices": f"{json_type} NOT NULL DEFAULT '[]'",
+        "vwap_prices": f"{json_type} NOT NULL DEFAULT '[]'",
+        "gross_edge": "FLOAT NOT NULL DEFAULT 0",
+        "fee": "FLOAT NOT NULL DEFAULT 0",
+        "slippage": "FLOAT NOT NULL DEFAULT 0",
+        "size": "FLOAT NOT NULL DEFAULT 0",
+        "decision": "VARCHAR NOT NULL DEFAULT 'rejected'",
+        "rejection_reason": "VARCHAR NOT NULL DEFAULT ''",
+    }
+    with engine.begin() as connection:
+        for column, definition in additions.items():
+            if column not in existing:
+                connection.execute(
+                    text(f'ALTER TABLE opportunities ADD COLUMN "{column}" {definition}')
+                )
 
 
 def create_session_db(settings: object | None = None) -> Session:
@@ -183,3 +320,42 @@ def list_opportunities(
     if status:
         stmt = stmt.where(Opportunity.status == status)
     return list(session.exec(stmt.limit(limit)).all())
+
+
+def load_runtime_config(session: Session) -> dict[str, object]:
+    """Return persisted operational overrides; this table never stores secrets."""
+    return {row.key: row.value for row in session.exec(select(RuntimeConfig)).all()}
+
+
+def save_runtime_config(session: Session, values: dict[str, object]) -> None:
+    for key, value in values.items():
+        row = session.exec(select(RuntimeConfig).where(RuntimeConfig.key == key)).first()
+        if row is None:
+            row = RuntimeConfig(key=key, value=value)
+        else:
+            row.value = value
+            row.updated_at = _now_ms()
+        session.add(row)
+    session.commit()
+
+
+def add_system_event(
+    session: Session,
+    event_type: str,
+    message: str,
+    *,
+    severity: str = "info",
+    component: str = "system",
+    details: dict | None = None,
+) -> SystemEvent:
+    event = SystemEvent(
+        event_type=event_type,
+        message=message,
+        severity=severity,
+        component=component,
+        details=details or {},
+    )
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    return event

@@ -65,7 +65,7 @@ class WebSocketClient:
         self.on_connect = on_connect
         self.on_disconnect = on_disconnect
 
-        self._ws: websockets.WebSocketClientProtocol | None = None
+        self._ws: Any | None = None
         self._state = ConnectionState.DISCONNECTED
         self._subscriptions: list[Subscription] = []
         self._reconnect_attempts = 0

@@ -7,10 +7,9 @@ Handles L1/L2 authentication and API credential management.
 from dataclasses import dataclass
 
 from eth_account import Account
-from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import ApiCreds
+from py_clob_client_v2 import ApiCreds, ClobClient
 
-from src.config import Endpoints, TradingConfig, get_settings
+from src.config import Endpoints, get_settings
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -74,7 +73,7 @@ def create_clob_client(
         host=host,
         key=private_key,
         chain_id=chain_id,
-        signature_type=TradingConfig.SIGNATURE_TYPE_POLY,
+        signature_type=get_settings().signature_type,
         funder=proxy_address,
     )
     return client
@@ -100,11 +99,8 @@ def derive_api_credentials(client: ClobClient) -> ApiCreds:
         AuthenticationError: If credential derivation fails
     """
     try:
-        creds = client.create_or_derive_api_creds()
-        logger.info(
-            "API credentials derived",
-            api_key_prefix=creds.api_key[:8] + "...",
-        )
+        creds = client.create_or_derive_api_key()
+        logger.info("API credentials derived")
         return creds
     except Exception as e:
         raise AuthenticationError(f"Failed to derive API credentials: {e}") from e
@@ -150,8 +146,19 @@ def authenticate() -> AuthenticatedClient:
     except Exception as e:
         raise AuthenticationError(f"Failed to connect to CLOB server: {e}") from e
 
-    # Step 4: Derive API credentials
-    api_creds = derive_api_credentials(client)
+    # Step 4: use server credentials when supplied, otherwise derive them.
+    if (
+        settings.polymarket_api_key
+        and settings.polymarket_api_secret
+        and settings.polymarket_api_passphrase
+    ):
+        api_creds = ApiCreds(
+            api_key=settings.polymarket_api_key,
+            api_secret=settings.polymarket_api_secret,
+            api_passphrase=settings.polymarket_api_passphrase,
+        )
+    else:
+        api_creds = derive_api_credentials(client)
     client.set_api_creds(api_creds)
 
     logger.info(

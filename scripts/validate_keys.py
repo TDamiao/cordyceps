@@ -57,7 +57,7 @@ def validate_env_vars() -> bool:
         # print_result("PRIVATE_KEY", False, f"Invalid length: {len(private_key)} (expected 66)")
         # all_valid = False
     else:
-        print_result("PRIVATE_KEY", True, f"Format valid (0x...{private_key[-4:]})")
+        print_result("PRIVATE_KEY", True, "Format valid (value intentionally hidden)")
 
     # Check PROXY_ADDRESS
     if not proxy_address:
@@ -98,7 +98,7 @@ def validate_clob_connection() -> bool:
     """Test connection to Polymarket CLOB API."""
     import os
 
-    from py_clob_client.client import ClobClient
+    from py_clob_client_v2 import ClobClient
 
     print_header("Step 3: Testing CLOB API Connection")
 
@@ -132,7 +132,7 @@ def validate_api_credentials() -> bool:
     """Test API credential derivation."""
     import os
 
-    from py_clob_client.client import ClobClient
+    from py_clob_client_v2 import ClobClient
 
     print_header("Step 4: Deriving API Credentials")
 
@@ -150,10 +150,10 @@ def validate_api_credentials() -> bool:
         )
 
         # Derive or create API credentials
-        creds = client.create_or_derive_api_creds()
+        creds = client.create_or_derive_api_key()
         client.set_api_creds(creds)
 
-        print_result("API Key Derived", True, f"Key: {creds.api_key[:8]}...")
+        print_result("API Key Derived", True, "Value intentionally hidden")
         print_result("API Secret", True, "Successfully derived")
         print_result("API Passphrase", True, "Successfully derived")
 
@@ -168,7 +168,7 @@ def validate_market_access() -> bool:
     """Test fetching market data."""
     import os
 
-    from py_clob_client.client import ClobClient
+    from py_clob_client_v2 import ClobClient
 
     print_header("Step 5: Testing Market Data Access")
 
@@ -186,7 +186,7 @@ def validate_market_access() -> bool:
         )
 
         # Derive credentials
-        creds = client.create_or_derive_api_creds()
+        creds = client.create_or_derive_api_key()
         client.set_api_creds(creds)
 
         # Fetch some markets

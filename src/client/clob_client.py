@@ -7,8 +7,17 @@ Provides a high-level interface for trading operations.
 from decimal import Decimal
 from typing import Any
 
-from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs
+from py_clob_client_v2 import (
+    AssetType,
+    BalanceAllowanceParams,
+    ClobClient,
+    OrderArgs,
+    OrderPayload,
+    Side,
+)
+from py_clob_client_v2 import (
+    OrderType as ClobOrderType,
+)
 
 from src.client.auth import AuthenticatedClient, authenticate
 from src.client.models import (
@@ -49,7 +58,7 @@ class PolymarketClient:
         self._public_only = public_only
 
         if public_only:
-            self._client = ClobClient(host=Endpoints.CLOB_HOST)
+            self._client = ClobClient(host=Endpoints.CLOB_HOST, chain_id=self._settings.chain_id)
             logger.info("PolymarketClient initialized in public-only mode")
             return
 
@@ -127,7 +136,8 @@ class PolymarketClient:
         """Get the current midpoint for a token."""
         try:
             raw = self._client.get_midpoint(token_id)
-            return Decimal(str(raw.mid)) if raw and raw.mid else None
+            mid = raw.get("mid") if isinstance(raw, dict) else getattr(raw, "mid", None)
+            return Decimal(str(mid)) if mid is not None else None
         except Exception as e:
             logger.warning("Failed to get price", token_id=token_id, error=str(e))
             return None
@@ -147,7 +157,7 @@ class PolymarketClient:
         price: Decimal,
         size: Decimal,
         order_type: OrderType = OrderType.GTC,
-    ) -> str | None:
+    ) -> dict[str, Any]:
         """Create and submit an order."""
         if self._settings.trading_mode == "paper" or self._settings.dry_run:
             logger.info(
@@ -157,7 +167,13 @@ class PolymarketClient:
                 price=str(price),
                 size=str(size),
             )
-            return "paper_order_id"
+            return {
+                "success": True,
+                "orderID": "paper_order_id",
+                "status": "matched",
+                "makingAmount": str(int(size * Decimal("1000000"))),
+                "takingAmount": str(int(size * price * Decimal("1000000"))),
+            }
 
         self._require_authenticated()
 
@@ -166,22 +182,23 @@ class PolymarketClient:
                 token_id=token_id,
                 price=float(price),
                 size=float(size),
-                side=side.value,
+                side=Side.BUY if side == OrderSide.BUY else Side.SELL,
             )
-            signed_order = self._client.create_order(order_args)
-            response = self._client.post_order(signed_order, order_type=order_type.value)
-
-            order_id = response.get("orderID") if response else None
+            response = self._client.create_and_post_order(
+                order_args=order_args,
+                order_type=getattr(ClobOrderType, order_type.value),
+            )
+            response = response or {}
 
             logger.info(
                 "Order submitted",
-                order_id=order_id,
+                order_id=response.get("orderID"),
                 token_id=token_id,
                 side=side.value,
                 price=str(price),
                 size=str(size),
             )
-            return order_id
+            return response
 
         except Exception as e:
             logger.error(
@@ -189,7 +206,7 @@ class PolymarketClient:
                 token_id=token_id,
                 error=str(e),
             )
-            return None
+            return {"success": False, "status": "failed", "errorMsg": str(e)}
 
     def create_fok_order(
         self,
@@ -197,7 +214,7 @@ class PolymarketClient:
         side: OrderSide,
         price: Decimal,
         size: Decimal,
-    ) -> str | None:
+    ) -> dict[str, Any]:
         """Create a Fill-or-Kill order."""
         return self.create_order(
             token_id=token_id,
@@ -211,7 +228,7 @@ class PolymarketClient:
         """Cancel an open order."""
         self._require_authenticated()
         try:
-            self._client.cancel(order_id)
+            self._client.cancel_order(OrderPayload(orderID=order_id))
             logger.info("Order cancelled", order_id=order_id)
             return True
         except Exception as e:
@@ -237,7 +254,7 @@ class PolymarketClient:
         """Get all open orders."""
         self._require_authenticated()
         try:
-            return self._client.get_orders() or []
+            return self._client.get_open_orders() or []
         except Exception as e:
             logger.error("Failed to get open orders", error=str(e))
             return []
@@ -258,6 +275,19 @@ class PolymarketClient:
     def get_server_time(self) -> int:
         """Get current server timestamp."""
         return self._client.get_server_time()
+
+    def get_order(self, order_id: str) -> dict[str, Any]:
+        self._require_authenticated()
+        return self._client.get_order(order_id) or {}
+
+    def get_balance_allowance(self, token_id: str | None = None) -> dict[str, Any]:
+        self._require_authenticated()
+        asset_type = AssetType.CONDITIONAL if token_id else AssetType.COLLATERAL
+        params = BalanceAllowanceParams(asset_type=asset_type, token_id=token_id)
+        return self._client.get_balance_allowance(params) or {}
+
+    def get_clob_market_info(self, condition_id: str) -> Any:
+        return self._client.get_clob_market_info(condition_id)
 
     def is_connected(self) -> bool:
         """Check if client can reach the server."""

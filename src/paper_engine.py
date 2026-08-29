@@ -15,10 +15,10 @@ import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from src.config import get_settings
-from src.database import Trade, get_engine
+from src.config import Settings, get_settings
+from src.database import PaperTrade, Trade, get_engine
 from src.engine.detector import ArbitrageOpportunity, SignalType
 from src.utils.logging import get_logger
 
@@ -46,8 +46,14 @@ class PaperFill:
 class PaperEngine:
     """Simulated trade executor used when trading_mode is paper."""
 
-    def __init__(self, simulated_latency_ms: int | None = None) -> None:
-        settings = get_settings()
+    def __init__(
+        self,
+        simulated_latency_ms: int | None = None,
+        settings: Settings | None = None,
+    ) -> None:
+        load_persisted = settings is not None
+        settings = settings or get_settings()
+        self._settings = settings
         self._latency_ms = (
             simulated_latency_ms
             if simulated_latency_ms is not None
@@ -56,6 +62,8 @@ class PaperEngine:
         self._fills: list[PaperFill] = []
         self._lock = asyncio.Lock()
         self._trade_seq = 0
+        if load_persisted:
+            self._load_persisted()
 
     @property
     def fills(self) -> list[PaperFill]:
@@ -121,7 +129,22 @@ class PaperEngine:
         """Persist the fill to the database if engine is configured for it."""
         # Minimal persistence; if sqlalchemy is available we upsert the Trade row
         try:
-            with Session(get_engine()) as session:
+            with Session(get_engine(self._settings)) as session:
+                session.add(
+                    PaperTrade(
+                        trade_id=fill.trade_id,
+                        market_id=fill.market_id,
+                        signal=fill.signal_type,
+                        token_ids=fill.token_ids,
+                        size=fill.size,
+                        total_cost=fill.size * fill.price,
+                        expected_profit=fill.expected_profit,
+                        realized_pnl=fill.realized_profit,
+                        success=fill.success,
+                        latency_ms=fill.execution_time_ms,
+                        timestamp=fill.timestamp,
+                    )
+                )
                 session.add(
                     Trade(
                         trade_id=fill.trade_id,
@@ -142,6 +165,31 @@ class PaperEngine:
                 session.commit()
         except Exception:  # pragma: no cover - db env guard
             logger.debug("paper.persist_skipped")
+
+    def _load_persisted(self) -> None:
+        try:
+            with Session(get_engine(self._settings)) as session:
+                rows = session.exec(select(PaperTrade).order_by(PaperTrade.timestamp)).all()
+            self._fills = [
+                PaperFill(
+                    trade_id=row.trade_id,
+                    market_id=row.market_id,
+                    signal_type=row.signal,
+                    token_ids=row.token_ids,
+                    side="BUY" if row.signal == "BUY_SET" else "SELL",
+                    size=row.size,
+                    price=row.total_cost / row.size if row.size else 0,
+                    expected_profit=row.expected_profit,
+                    realized_profit=row.realized_pnl,
+                    success=row.success,
+                    execution_time_ms=row.latency_ms,
+                    timestamp=row.timestamp,
+                )
+                for row in rows
+            ]
+            self._trade_seq = len(self._fills)
+        except Exception:
+            logger.debug("paper.load_skipped")
 
     def reset(self) -> None:
         self._fills.clear()

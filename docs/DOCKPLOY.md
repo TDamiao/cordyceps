@@ -1,184 +1,130 @@
-# Dockploy – Deployment Guide
+# Deploy no Dokploy
 
-This document describes how to deploy Cordyceps using Docker, Dockploy (self-hosted PaaS), or manual server setup.
+O deploy continua composto apenas por Cordyceps + PostgreSQL, porta 8000 e healthcheck `/health`. Não há Redis, Kubernetes ou serviço pago obrigatório.
 
-## Docker Deployment
+## 1. Aplicação
 
-### Local Development
+- Source: este repositório.
+- Build: `Dockerfile`, target `production`.
+- Container port: `8000`.
+- Replicas/workers: **1**. Arm state e execution lock são process-local por segurança.
+- Healthcheck: `GET /health`.
+- Domain: por exemplo `https://cordyceps.tdamiao.com`.
+
+## 2. PostgreSQL
+
+Crie PostgreSQL 16 com volume persistente e configure:
+
+```dotenv
+POSTGRES_USER=cordyceps
+POSTGRES_DB=cordyceps
+POSTGRES_PASSWORD=<senha-forte>
+```
+
+No app:
+
+```dotenv
+DATABASE_URL=postgresql+psycopg://cordyceps:<senha-forte>@postgres:5432/cordyceps
+```
+
+A inicialização cria tabelas e migrations aditivas automaticamente. Nunca use `drop_existing` em produção.
+
+## 3. Primeiro deploy: paper
+
+Adicione ao app exatamente:
+
+```dotenv
+TRADING_MODE=paper
+LIVE_TRADING_ENABLED=false
+DRY_RUN=true
+KILL_SWITCH=false
+ADMIN_TOKEN=<token-aleatorio-forte>
+DATABASE_URL=postgresql+psycopg://cordyceps:<senha-forte>@postgres:5432/cordyceps
+POLYGON_RPC_URL=<rpc-polygon>
+PORT=8000
+LOG_FORMAT=json
+LOG_LEVEL=INFO
+```
+
+`PRIVATE_KEY`, `PROXY_ADDRESS` e credenciais CLOB podem ficar ausentes em paper. Após o deploy:
 
 ```bash
-# Clone and configure
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start with PostgreSQL
-docker compose up -d
-
-# Verify
-curl http://localhost:8000/health
+curl -fsS https://cordyceps.tdamiao.com/health
 ```
 
-### Production (single server)
+Abra `/`, autentique com `ADMIN_TOKEN` e confirme market data, WebSocket, books e paper metrics.
 
-```bash
-# Set strong passwords
-export POSTGRES_PASSWORD=$(openssl rand -hex 16)
-export PRIVATE_KEY=0x...
-export PROXY_ADDRESS=0x...
+## 4. Preparar live_test — sem armar
 
-# Deploy
-docker compose up -d --build
+Somente depois de validar paper, adicione/ajuste:
 
-# Monitor
-docker compose logs -f bot
-docker compose exec postgres psql -U cordyceps -d cordyceps
+```dotenv
+TRADING_MODE=live_test
+LIVE_TRADING_ENABLED=true
+DRY_RUN=false
+PRIVATE_KEY=<secret-do-signer-eoa>
+PROXY_ADDRESS=<wallet-funder>
+SIGNATURE_TYPE=1
+CLOB_API_KEY=<opcional>
+CLOB_API_SECRET=<opcional>
+CLOB_API_PASSPHRASE=<opcional>
+MAX_TRADE_USD=1
+MAX_TOTAL_EXPOSURE_USD=2
+MAX_DAILY_LOSS_USD=1
+MAX_OPEN_TRADES=1
+MAX_LEG_IMBALANCE_USD=1
+LEG_TIMEOUT_MS=2000
+MIN_NET_EDGE=0.01
+MIN_NET_PROFIT_USD=0.01
+MAX_SLIPPAGE_PCT=0.005
+ORDERBOOK_STALE_MS=3000
+CIRCUIT_BREAKER_FAILURE_THRESHOLD=3
+CIRCUIT_BREAKER_COOLDOWN_MINUTES=15
+MARKET_LIMIT=50
+SCAN_INTERVAL_SECONDS=60
 ```
 
-### Health Check
+As credenciais CLOB podem ser omitidas para derivação pelo SDK, mas readiness exige autenticação válida. Confirme `SIGNATURE_TYPE` conforme sua wallet (`0` EOA; tipos proxy/safe/deposit conforme documentação oficial vigente).
 
-The bot exposes a `/health` endpoint at `$PORT` (default 8000):
+O restart resultante permanece **disarmed**. No dashboard:
 
-```json
-{
-  "mode": "paper",
-  "database": "postgresql+psycopg://...",
-  "websocket": {"connected": true, "status": "healthy"},
-  "scanner": {"running": true, "tracked_markets": 42},
-  "paper_engine": {"trade_count": 0, "total_profit": 0},
-  "active_markets": 42,
-  "running": true,
-  "uptime": 3600.0
-}
-```
+1. Refresh wallet.
+2. Run checks em Live Readiness.
+3. Corrija todo item `blocked`.
+4. Confirme geoblock `allowed`.
+5. Somente então clique **Arm live test** e digite `CORDYCEPS LIVE`.
 
-### Docker Image Details
+Não adicione `TRADING_MODE=live` nesta fase.
 
-| Property | Value |
-|----------|-------|
-| Base image | `python:3.13-slim` |
-| Build | Multi-stage (builder → production) |
-| User | Non-root `botuser` (UID created at build) |
-| Healthcheck | `curl -sf http://localhost:8000/health` |
-| Start period | 15 seconds |
-| Volumes | `/app/data`, `/app/logs` |
-| Build context | Excludes `.git/`, `.venv/`, `tests/`, docs via `.dockerignore` |
+## Variáveis que devem ser secrets no Dokploy
 
-### Resource Limits
+- `ADMIN_TOKEN`
+- `POSTGRES_PASSWORD` (ou o `DATABASE_URL` completo)
+- `PRIVATE_KEY`
+- `CLOB_API_SECRET`
+- `CLOB_API_PASSPHRASE`
+- `CLOB_API_KEY` (trate como credencial, embora não seja chave de assinatura)
 
-Both services have CPU and memory limits configured in `docker-compose.yml`:
+Nenhum desses valores aparece no dashboard. `PRIVATE_KEY` nunca é persistida no PostgreSQL.
 
-| Service | CPU Limit | Memory Limit | CPU Reserve | Memory Reserve |
-|---------|-----------|--------------|-------------|----------------|
-| bot | 1.0 | 512M | 0.25 | 128M |
-| postgres | 1.0 | 256M | 0.1 | 64M |
+## Kill switch
 
-## Dockploy (Self-Hosted PaaS)
+O botão Kill Switch desarma o processo e impede novas ordens sem interromper market data ou dashboard. `Resume` desliga o switch, mas não rearma live. Se aparecer `EXPOSURE REQUIRES ATTENTION`, não rearme até reconciliar a wallet e o histórico de execução.
 
-### Prerequisites
+## Atualizações e rollback
 
-- Dockploy installed on a VPS (Hetzner, DigitalOcean, etc.)
-- A domain name pointing to your server
-- Docker installed
-
-### Setup
-
-1. **Add a new Application** in Dockploy:
-   - Source: Git repository (`your-org/cordyceps`)
-   - Buildpack: Dockerfile (target: `production`)
-   - Port: 8000
-
-2. **Add a PostgreSQL service**:
-   - Image: `postgres:16-alpine`
-   - Environment: `POSTGRES_USER=cordyceps`, `POSTGRES_PASSWORD=<random>`
-   - Volume: `/var/lib/postgresql/data`
-
-3. **Configure environment variables** on the bot service:
-   ```
-   TRADING_MODE=paper
-   DATABASE_URL=postgresql+psycopg://cordyceps:<password>@postgres:5432/cordyceps
-   PRIVATE_KEY=<your-key>
-   PROXY_ADDRESS=<your-proxy>
-   LIVE_TRADING_ENABLED=false
-   PORT=8000
-   ```
-
-4. **Deploy** and verify health endpoint:
-   ```bash
-   curl https://your-domain.com/health
-   ```
-
-### Dockploy Environment Mapping
-
-Dockploy injects environment variables directly. Map these:
-
-| Dockploy Setting | Env Var |
-|------------------|---------|
-| App Port | `PORT` |
-| Secret: Private Key | `PRIVATE_KEY` |
-| Secret: Proxy Address | `PROXY_ADDRESS` |
-| DB Host | Used in `DATABASE_URL` |
-| DB Password | Used in `DATABASE_URL` |
-
-## GCP Cloud Run
-
-```bash
-# Build and push to Artifact Registry
-gcloud builds submit --tag us-central1-docker.pkg.dev/PROJECT/cordyceps/bot:latest
-
-# Deploy to Cloud Run
-gcloud run deploy cordyceps \
-  --image us-central1-docker.pkg.dev/PROJECT/cordyceps/bot:latest \
-  --port 8000 \
-  --min-instances 0 \
-  --max-instances 1 \
-  --set-secrets="PRIVATE_KEY=PRIVATE_KEY:latest,PROXY_ADDRESS=PROXY_ADDRESS:latest" \
-  --set-env-vars="TRADING_MODE=paper,DATABASE_URL=sqlite:///./cordyceps.db"
-```
-
-## Environment Reference
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `TRADING_MODE` | No | `paper` | `paper` or `live` |
-| `LIVE_TRADING_ENABLED` | For live | `false` | Must be `true` for live mode |
-| `KILL_SWITCH` | No | `false` | Pauses all trading |
-| `PRIVATE_KEY` | For live | `""` | EOA private key |
-| `PROXY_ADDRESS` | For live | `""` | Polymarket proxy wallet |
-| `DATABASE_URL` | No | `sqlite:///./cordyceps.db` | PostgreSQL for production |
-| `PORT` | No | `8000` | HTTP server port |
-| `MAX_TRADE_USD` | No | `1.0` | Max USDC per trade |
-| `MAX_TOTAL_EXPOSURE_USD` | No | `5.0` | Max total open exposure |
-| `MAX_DAILY_LOSS_USD` | No | `1.0` | Daily loss limit |
-| `MAX_POSITION_SIZE` | No | `100.0` | Max position size |
-| `MIN_TRADE_SHARES` | No | `1.0` | Minimum order quantity |
-| `ORDERBOOK_STALE_MS` | No | `3000` | Max orderbook age |
-| `SIMULATED_LATENCY_MS` | No | `0` | Paper mode latency |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | No | `5` | Failures before pause |
-| `CIRCUIT_BREAKER_COOLDOWN_MINUTES` | No | `15` | Pause duration |
-| `POSTGRES_PASSWORD` | For docker | `cordyceps` | PostgreSQL password |
-| `LOG_FORMAT` | No | `console` | `json` or `console` |
-| `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-
-## Security Notes
-
-- **Never commit `.env`** – it's gitignored by default
-- **Use strong passwords** for PostgreSQL in production
-- **Paper mode is the default** – live mode requires explicit opt-in
-- **Kill switch** can be set at runtime to immediately pause trading
-- **The Docker image runs as non-root** (`botuser`)
-- **Build context is minimal** – `.dockerignore` excludes secrets, tests, and docs
-- **Resource limits** prevent runaway memory/CPU usage
-- **Log rotation** configured via Docker json-file driver
+Todo novo container inicia disarmed. Depois de update/rollback, rode readiness novamente. Mantenha o volume PostgreSQL; as migrations são somente aditivas.
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| `LIVE_TRADING_ENABLED=true is required when TRADING_MODE=live` | Set both `TRADING_MODE=live` and `LIVE_TRADING_ENABLED=true` |
-| `PRIVATE_KEY is required when TRADING_MODE=live` | Add your private key to `.env` |
-| `Database connection refused` | Ensure PostgreSQL container is running and healthy |
-| Health endpoint returns 503 | Wait for start_period (15s) then check logs |
-| Circuit breaker active | Wait for cooldown or manually restart |
-| `Cannot connect to Docker daemon` | Start Docker Desktop or `systemctl start docker` |
-| Container keeps restarting | Check logs: `docker compose logs bot --tail=50` |
-| Out of memory | Increase `deploy.resources.limits.memory` in docker-compose.yml |
+| Sintoma | Ação |
+|---|---|
+| `/` redireciona para login e o token falha | Configure `ADMIN_TOKEN` no app e redeploy. |
+| Readiness `geographic_eligibility=blocked` | Live é proibido nessa localização. Use apenas paper; não tente bypass. |
+| `balance`/`allowance` bloqueado | Confira pUSD no funder, signature type e approvals oficiais. O bot não aprova tokens automaticamente. |
+| `clob_authentication=blocked` | Confira signer/funder/signature type e derive novamente as credenciais L2. |
+| `dry_run=blocked` | Para live_test real, configure `DRY_RUN=false`; paper deve continuar `true`. |
+| `EXPOSURE REQUIRES ATTENTION` | Mantenha kill switch, confira posições/order history e faça reconciliação manual. |
+| Dashboard funciona mas books estão vazios | Verifique logs de WebSocket e Gamma, DNS/egress e `MARKET_LIMIT`. |
+
+Nunca habilite live sem readiness completo. Readiness não envia ordens, approvals ou transações.

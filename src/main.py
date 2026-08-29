@@ -7,14 +7,19 @@ Orchestrates all components: observer, engine, executor, and settlement.
 
 import asyncio
 import signal
+from decimal import Decimal
 from pathlib import Path
 
 from src.client import PolymarketClient, authenticate
-from src.config import get_settings
+from src.database import Opportunity, get_engine
 from src.engine import ArbitrageEngine
+from src.engine.detector import calculate_price_sum
 from src.execution import OrderExecutor, RateLimiter
+from src.fees import FeeService
 from src.markets import MarketFetcher
 from src.observer import MarketObserver
+from src.paper_engine import PaperEngine
+from src.runtime import RuntimeState, get_runtime
 from src.settlement import PositionMonitor, SettlementAgent
 from src.utils.logging import get_logger, setup_logging
 from src.utils.metrics import HealthMonitor, MetricsTracker
@@ -33,14 +38,23 @@ class ArbitrageBot:
     - Settlement Agent: Capital recycling
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        runtime: RuntimeState | None = None,
+        paper_engine: PaperEngine | None = None,
+    ):
         """Initialize the arbitrage bot."""
-        self._settings = get_settings()
+        self._runtime = runtime or get_runtime()
+        self._settings = self._runtime.settings
         setup_logging()
 
         self._client: PolymarketClient | None = None
         self._observer: MarketObserver | None = None
         self._engine = ArbitrageEngine()
+        self._fee_service = FeeService(
+            self._settings.clob_api_url, self._settings.fee_fallback_rate
+        )
+        self._paper_engine = paper_engine or PaperEngine(settings=self._settings)
         self._executor: OrderExecutor | None = None
         self._settlement: SettlementAgent | None = None
         self._position_monitor: PositionMonitor | None = None
@@ -71,9 +85,15 @@ class ArbitrageBot:
                 logger.info("Paper mode: authentication skipped")
                 auth_address = None
             else:
-                auth_result = authenticate()
-                self._client = PolymarketClient(auth_result)
-                auth_address = auth_result.eoa_address
+                try:
+                    auth_result = authenticate()
+                    self._client = PolymarketClient(auth_result)
+                    auth_address = auth_result.eoa_address
+                except Exception as exc:
+                    # Keep market data/dashboard online, but fail closed for orders.
+                    self._client = PolymarketClient(public_only=True)
+                    auth_address = None
+                    logger.error("Live authentication unavailable", error=str(exc))
 
             self._observer = MarketObserver(
                 on_book_update=self._on_book_update,
@@ -84,48 +104,28 @@ class ArbitrageBot:
 
             from src.risk.manager import RiskManager
 
-            risk_manager = RiskManager()
+            risk_manager = RiskManager(self._settings, self._runtime)
+            self._risk_manager = risk_manager
 
-            # On-chain merge requires a signing key and must never initialize
-            # in paper mode, even when USE_ATOMIC_MERGE=true.
+            # The legacy merge implementation targets pre-V2 collateral/contracts.
+            # Fail closed until the V2 relayer flow receives a separate audit.
             ctf_contract = None
-            if self._settings.trading_mode == "live" and self._settings.use_atomic_merge:
-                try:
-                    from web3 import Web3
-
-                    from src.contracts import CTF_ADDRESS, CTFContract
-
-                    w3 = Web3(Web3.HTTPProvider(self._settings.polygon_rpc_url))
-
-                    ctf_contract = CTFContract(
-                        web3=w3,
-                        private_key=self._settings.private_key,
-                        ctf_address=CTF_ADDRESS,
-                        proxy_address=self._settings.proxy_address,
-                    )
-                    logger.info("Atomic merge enabled with CTF contract")
-                except Exception as e:
-                    logger.error("Failed to initialize CTF contract", error=str(e))
-                    logger.warning("Atomic merge disabled due to initialization error")
-            elif self._settings.trading_mode == "paper":
-                logger.info("Paper mode: atomic merge disabled")
+            if self._settings.use_atomic_merge:
+                logger.warning("USE_ATOMIC_MERGE ignored: audited CLOB V2 merge is unavailable")
 
             self._executor = OrderExecutor(
                 client=self._client,
                 rate_limiter=rate_limiter,
                 ctf_contract=ctf_contract,
                 risk_manager=risk_manager,
+                runtime=self._runtime,
+                revalidator=self._revalidate_opportunity,
             )
 
             # Settlement is a live-only subsystem.
-            if self._settings.trading_mode == "live" and not self._settings.dry_run:
-                self._settlement = SettlementAgent(
-                    private_key=self._settings.private_key,
-                    dry_run=False,
-                )
-                self._position_monitor = PositionMonitor(self._settlement)
-            else:
-                logger.info("Settlement disabled", mode=self._settings.trading_mode)
+            # Legacy settlement code targets pre-V2 collateral/contracts. It is
+            # deliberately kept disabled until a dedicated V2 relayer path is audited.
+            logger.info("Settlement disabled pending audited CLOB V2 relayer integration")
 
             logger.info(
                 "Bot initialized",
@@ -151,8 +151,9 @@ class ArbitrageBot:
         try:
             logger.info("Fetching active markets...")
             markets = await self._fetcher.fetch_markets(
-                active_only=False,
+                active_only=True,
                 binary_only=True,
+                limit=self._settings.market_limit,
             )
 
             if not markets:
@@ -167,7 +168,7 @@ class ArbitrageBot:
 
             all_token_ids = []
 
-            for market in markets[:50]:
+            for market in markets[: self._settings.market_limit]:
                 self._observer.state.register_market(market.condition_id, market.token_ids)
                 self._active_markets[market.condition_id] = market.token_ids
                 all_token_ids.extend(market.token_ids)
@@ -230,9 +231,30 @@ class ArbitrageBot:
             return
 
         try:
-            opportunity = self._engine.analyze_market(condition_id, order_books)
+            fee_params = await self._fee_service.refresh(condition_id)
+            before = self._engine.stats
+            opportunity = self._engine.analyze_market(
+                condition_id, order_books, fee_params=fee_params
+            )
 
             if not opportunity:
+                after = self._engine.stats
+                reasons = [
+                    name
+                    for name in (
+                        "rejected_stale",
+                        "rejected_liquidity",
+                        "rejected_slippage",
+                        "rejected_fee",
+                        "rejected_profit",
+                        "rejected_edge",
+                        "rejected_risk",
+                    )
+                    if after.get(name, 0) > before.get(name, 0)
+                ]
+                self._persist_rejected(
+                    condition_id, order_books, reasons[0] if reasons else "no_edge"
+                )
                 return
 
             logger.info(
@@ -242,19 +264,19 @@ class ArbitrageBot:
                 profit=str(opportunity.net_profit),
             )
 
+            self._persist_opportunity(opportunity)
+
             if self._executor:
                 if self._settings.trading_mode == "paper":
-                    from src.execution.paper import PaperSimulator
-
-                    simulator = PaperSimulator(
-                        latency_ms=self._settings.simulated_latency_ms,
-                        log_path="data/paper_trades.jsonl",
-                    )
-                    result = await simulator.execute(opportunity)
+                    fill = await self._paper_engine.execute(opportunity)
+                    realized_profit = fill.realized_profit
+                    success = fill.success
+                    execution_time_ms = fill.execution_time_ms
                 else:
-                    from src.execution import execute_arbitrage
-
-                    result = await execute_arbitrage(self._client, opportunity)
+                    result = await self._executor.execute_opportunity(opportunity)
+                    realized_profit = result.realized_profit
+                    success = result.success
+                    execution_time_ms = result.execution_time_ms
 
                 self._metrics.create_trade_record(
                     market_id=condition_id,
@@ -263,10 +285,10 @@ class ArbitrageBot:
                     size=opportunity.max_size,
                     total_cost=opportunity.total_cost,
                     expected_profit=opportunity.net_profit,
-                    realized_profit=result.realized_profit,
+                    realized_profit=realized_profit,
                     fees=opportunity.fees,
-                    success=result.success,
-                    execution_time_ms=result.execution_time_ms,
+                    success=success,
+                    execution_time_ms=execution_time_ms,
                 )
 
         except Exception as e:
@@ -293,6 +315,79 @@ class ArbitrageBot:
         self._health.set_websocket_status(False)
         logger.info("Bot stopped")
 
+    async def _revalidate_opportunity(self, opportunity):
+        if not self._observer:
+            return None
+        books = self._observer.state.get_market_books(opportunity.market_id)
+        if not books:
+            return None
+        fee_params = await self._fee_service.refresh(opportunity.market_id)
+        return self._engine.analyze_market(opportunity.market_id, books, fee_params=fee_params)
+
+    def _persist_opportunity(self, opportunity) -> None:
+        try:
+            from sqlmodel import Session
+
+            with Session(get_engine(self._settings)) as session:
+                session.add(
+                    Opportunity(
+                        market_id=opportunity.market_id,
+                        signal_type=opportunity.signal_type.value,
+                        token_ids=opportunity.token_ids,
+                        prices=[float(value) for value in opportunity.prices],
+                        best_prices=[float(value) for value in opportunity.prices],
+                        vwap_prices=[float(value) for value in opportunity.vwap_prices],
+                        gross_edge=float(opportunity.gross_edge),
+                        net_edge=float(opportunity.net_edge),
+                        fee=float(opportunity.fees),
+                        slippage=float(opportunity.expected_slippage),
+                        size=float(opportunity.max_size),
+                        net_profit=float(opportunity.net_profit),
+                        max_size=float(opportunity.max_size),
+                        decision="paper" if self._settings.trading_mode == "paper" else "candidate",
+                        status="detected",
+                    )
+                )
+                session.commit()
+        except Exception as exc:
+            logger.warning("opportunity.persist_failed", error=str(exc))
+
+    def _persist_rejected(self, condition_id: str, books: dict, reason: str) -> None:
+        ask_sum = calculate_price_sum(books, "ask")
+        bid_sum = calculate_price_sum(books, "bid")
+        candidates = []
+        if ask_sum is not None and ask_sum < 1:
+            candidates.append(("BUY_SET", Decimal("1") - ask_sum, "ask"))
+        if bid_sum is not None and bid_sum > 1:
+            candidates.append(("SELL_SET", bid_sum - Decimal("1"), "bid"))
+        if not candidates:
+            return
+        try:
+            from sqlmodel import Session
+
+            with Session(get_engine(self._settings)) as session:
+                for signal, edge, side in candidates:
+                    levels = [
+                        book.best_ask if side == "ask" else book.best_bid for book in books.values()
+                    ]
+                    session.add(
+                        Opportunity(
+                            market_id=condition_id,
+                            signal_type=signal,
+                            token_ids=list(books),
+                            prices=[float(level.price) for level in levels if level],
+                            best_prices=[float(level.price) for level in levels if level],
+                            gross_edge=float(edge),
+                            net_edge=float(edge),
+                            decision="rejected",
+                            rejection_reason=reason,
+                            status="rejected",
+                        )
+                    )
+                session.commit()
+        except Exception as exc:
+            logger.warning("opportunity.rejection_persist_failed", error=str(exc))
+
     def get_status(self) -> dict:
         """Get current bot status."""
         observer_stats = self._observer.state.stats if self._observer else {}
@@ -303,7 +398,41 @@ class ArbitrageBot:
             "engine_stats": self._engine.stats,
             "executor_stats": self._executor.stats if self._executor else {},
             "active_markets": len(self._active_markets),
+            "paper": {
+                "trade_count": self._paper_engine.trade_count,
+                "total_profit": self._paper_engine.total_profit,
+                "last_trade": (
+                    self._paper_engine.fills[-1].timestamp if self._paper_engine.fills else None
+                ),
+            },
+            "risk": (
+                getattr(self, "_risk_manager", None).state
+                if getattr(self, "_risk_manager", None)
+                else {}
+            ),
+            "runtime": {
+                "armed": self._runtime.armed,
+                "kill_switch": self._runtime.kill_switch,
+                "incomplete_exposure_usd": self._runtime.incomplete_exposure_usd,
+            },
         }
+
+    def apply_runtime_config(self) -> None:
+        """Apply validated DB-backed parameters to long-lived components."""
+        settings = self._runtime.settings
+        self._settings = settings
+        self._engine.config.min_profit_threshold = Decimal(str(settings.min_profit_threshold))
+        self._engine.config.min_net_edge = Decimal(str(settings.min_net_edge))
+        self._engine.config.min_net_profit_usd = Decimal(str(settings.min_net_profit_usd))
+        self._engine.config.max_position_size = Decimal(str(settings.max_trade_usd))
+        self._engine.config.min_liquidity = Decimal(str(settings.min_trade_shares))
+        self._engine.config.min_trade_shares = Decimal(str(settings.min_trade_shares))
+        self._engine.config.max_slippage_pct = Decimal(str(settings.max_slippage_pct))
+        self._engine.config.orderbook_stale_ms = settings.orderbook_stale_ms
+        self._paper_engine._latency_ms = settings.simulated_latency_ms
+        if self._executor:
+            self._executor._settings = settings
+            self._executor._risk._settings = settings
 
     def shutdown(self) -> None:
         """Trigger graceful shutdown."""

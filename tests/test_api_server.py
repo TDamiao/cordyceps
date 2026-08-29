@@ -93,9 +93,9 @@ async def test_health_reports_mode_database_and_websocket(api_module, monkeypatc
     payload = await api_module.health_endpoint()
 
     assert payload["mode"] == "paper"
-    assert payload["database"] == "sqlite:///./cordyceps.db"
+    # Never expose a DATABASE_URL because it commonly embeds PostgreSQL credentials.
+    assert payload["database"] == "configured"
     assert payload["websocket"]["connected"] is True
-    assert payload["websocket"]["status"] == "healthy"
     assert payload["scanner"]["running"] is True
 
 

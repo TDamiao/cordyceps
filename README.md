@@ -1,196 +1,134 @@
-# Cordyceps – Polymarket Arbitrage Engine
+# Cordyceps
 
-Automated microstructure arbitrage engine for Polymarket's Central Limit Order Book (CLOB), leveraging the Gnosis Conditional Token Framework (CTF).
+Bot de arbitragem binária para o CLOB da Polymarket, com market data real, paper trading, painel operacional e um caminho de live trading que permanece bloqueado até validação e arm manual.
 
-## What It Does
+## Segurança primeiro
 
-Cordyceps exploits structural inefficiencies in binary prediction markets by detecting when the sum of outcome prices deviates from \$1.00:
+O processo sempre inicia **disarmed**. `TRADING_MODE=live_test` e `LIVE_TRADING_ENABLED=true` apenas tornam o processo elegível para o pre-flight; nenhuma ordem é enviada antes de:
 
-| Strategy | Trigger | Action |
-|----------|---------|--------|
-| **Buy Set** | Σ ask < \$1.00 | Buy all outcomes cheap → merge for \$1.00 |
-| **Sell Set** | Σ bid > \$1.00 | Split \$1.00 → sell outcomes for premium |
+1. `GET /api/readiness` retornar `ready=true`;
+2. geoblock oficial permitir trading;
+3. kill switch estar desligado;
+4. o operador autenticar no painel e digitar `CORDYCEPS LIVE` em **Arm live test**.
 
-## Architecture
+Todo restart volta a `armed=false`. Nunca habilite `live` sem passar pelo readiness e validar primeiro o perfil `live_test`.
 
-```
-WebSocket Feed → State Manager → Depth-Aware Engine → Executor → Settlement
-       │               │                 │                │            │
-       └── Market WS ──┘                 └── VWAP calc    └── FOK     └── Merge
-```
+## Modos
 
-- **Market Observer** – real-time order book mirroring via WebSocket
-- **Arbitrage Engine** – depth-aware VWAP calculation across price levels
-- **Risk Manager** – circuit breaker, daily loss limits, slippage guards
-- **Paper Simulator** – simulated execution mode with configurable failure injection
-- **Settlement Agent** – atomic CTF merge for capital recycling
+| Modo | Comportamento |
+|---|---|
+| `paper` | Market data real, fills simulados, sem wallet ou private key obrigatória. |
+| `live_test` | Capital real com defaults de US$ 1 por trade, uma execução por vez, readiness e arm manual. |
+| `live` | Modo futuro com as mesmas proteções; não é ativado automaticamente. |
 
-## Quick Start
+O collateral do CLOB V2 é **pUSD**. O painel conserva os rótulos “USDC” onde eles são familiares ao operador, mas balance e allowance do CLOB são lidos em pUSD. O projeto usa `py-clob-client-v2>=1.1.0`; o client legado foi removido após a migração oficial de abril de 2026.
 
-### Prerequisites
+## Arquitetura
 
-- Python 3.11+ (or Docker)
-- Polymarket account with proxy wallet
-- USDC on Polygon
-
-### Install
-
-```bash
-pip install -e ".[dev]"
+```text
+Gamma API → Market Fetcher → CLOB WebSocket → State Manager
+                                             ↓
+PostgreSQL ← Opportunity Log ← Fee-aware VWAP Engine
+                                             ↓
+Dashboard ← Readiness/Risk ← Execution State Machine
+                                             ↓
+                          FOK legs → hedge/unwind → circuit breaker
 ```
 
-### Configure
+As fees são consultadas por `condition_id` em `GET /clob-markets/{condition_id}` e calculadas pela curva oficial:
+
+```text
+fee = shares × rate × (price × (1 - price)) ^ exponent
+```
+
+Se os parâmetros não puderem ser obtidos, o engine usa uma curva conservadora explicitamente marcada como `fallback`; fee zero nunca é assumida silenciosamente.
+
+## Rodar localmente
 
 ```bash
 cp .env.example .env
-# Edit .env with your credentials
-```
-
-### Run
-
-```bash
-# Paper mode (default, safe)
-python -m uvicorn src.api_server:app --reload
-
-# Live mode
-TRADING_MODE=live LIVE_TRADING_ENABLED=true DRY_RUN=false \
-  PRIVATE_KEY=0x... PROXY_ADDRESS=0x... \
-  python -m uvicorn src.api_server:app
-```
-
-## Docker
-
-### Quick Start
-
-```bash
-# Start with PostgreSQL
-cp .env.example .env
-docker compose up -d
-
-# Verify
-curl http://localhost:8000/health
-```
-
-### Production Deploy
-
-```bash
-# Set strong passwords
-export POSTGRES_PASSWORD=$(openssl rand -hex 16)
-export PRIVATE_KEY=0x...
-export PROXY_ADDRESS=0x...
-
-# Build and start
+# Defina ADMIN_TOKEN e mantenha TRADING_MODE=paper.
 docker compose up -d --build
-
-# Monitor
-docker compose logs -f bot
 curl http://localhost:8000/health
 ```
 
-### Image Features
+Abra `http://localhost:8000/`, informe `ADMIN_TOKEN` e use o dashboard. `/health` e `/status` são públicos e sanitizados. `/api/*`, controles e configurações exigem sessão HTTP-only ou `Authorization: Bearer <ADMIN_TOKEN>`.
 
-| Feature | Detail |
-|---------|--------|
-| Base | `python:3.13-slim` |
-| User | Non-root `botuser` |
-| Healthcheck | `/health` endpoint every 30s |
-| Volumes | `bot_data`, `bot_logs`, `pgdata` |
-| Resources | CPU/memory limits via Compose deploy |
+## Profile “Live Test - $10 Wallet”
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TRADING_MODE` | `paper` | `paper` or `live` |
-| `LIVE_TRADING_ENABLED` | `false` | Must be `true` for live mode |
-| `PRIVATE_KEY` | – | EOA private key (required for live) |
-| `PROXY_ADDRESS` | – | Polymarket proxy wallet |
-| `DATABASE_URL` | `sqlite:///./cordyceps.db` | PostgreSQL for production |
-| `MAX_TRADE_USD` | `1.0` | Max USDC per trade |
-| `MAX_DAILY_LOSS_USD` | `1.0` | Daily loss limit |
-| `ORDERBOOK_STALE_MS` | `3000` | Reject stale order books |
-
-## Safety Features
-
-- **Kill Switch** – `KILL_SWITCH=true` pauses all trading
-- **Paper/Live Guards** – live mode requires explicit opt-in flags
-- **Circuit Breaker** – pauses after N consecutive failures
-- **Stale Book Detection** – rejects data older than threshold
-- **Leg Risk Buffer** – minimum edge required after fees
-
-## API
-
-```
-GET /health   →  mode, database, websocket, scanner status
-GET /status   →  lightweight liveness probe
+```dotenv
+MAX_TRADE_USD=1
+MAX_TOTAL_EXPOSURE_USD=2
+MAX_DAILY_LOSS_USD=1
+MAX_OPEN_TRADES=1
+MAX_LEG_IMBALANCE_USD=1
+MIN_NET_EDGE=0.01
+MIN_NET_PROFIT_USD=0.01
+MAX_SLIPPAGE_PCT=0.005
+ORDERBOOK_STALE_MS=3000
+CIRCUIT_BREAKER_FAILURE_THRESHOLD=3
+CIRCUIT_BREAKER_COOLDOWN_MINUTES=15
+LEG_TIMEOUT_MS=2000
 ```
 
-## Tests
+US$ 10 é o saldo da wallet, não o tamanho de uma operação. O profile limita cada oportunidade a US$ 1 e exposição total a US$ 2. Esses parâmetros e os demais itens de Risk & Strategy são validados e persistidos em `runtime_config`; alterações no painel não exigem restart.
+
+## Variáveis de ambiente
+
+| Variável | Default | Uso |
+|---|---:|---|
+| `TRADING_MODE` | `paper` | `paper`, `live_test` ou `live`. |
+| `LIVE_TRADING_ENABLED` | `false` | Gate do servidor para qualquer modo real. |
+| `DRY_RUN` | `true` | Deve ser `false` para o readiness live. |
+| `ADMIN_TOKEN` | vazio | Obrigatório para painel e APIs administrativas. |
+| `PRIVATE_KEY` | vazio | Signer EOA; nunca sai do servidor. |
+| `PROXY_ADDRESS` | vazio | Funder/proxy/deposit wallet. |
+| `SIGNATURE_TYPE` | `1` | Tipo da wallet: confirme conforme a conta Polymarket. |
+| `CLOB_API_KEY` | vazio | Credencial L2 opcional; pode ser derivada. |
+| `CLOB_API_SECRET` | vazio | Segredo L2, somente environment. |
+| `CLOB_API_PASSPHRASE` | vazio | Passphrase L2, somente environment. |
+| `DATABASE_URL` | SQLite local | Use PostgreSQL no Dokploy. |
+| `POLYGON_RPC_URL` | RPC público | RPC Polygon usado no readiness. |
+| `KILL_SWITCH` | `false` | Gate inicial; o painel mantém estado em memória. |
+| `MARKET_LIMIT` | `50` | Mercados monitorados. |
+| `SCAN_INTERVAL_SECONDS` | `60` | Intervalo do scanner. |
+
+Veja [.env.example](.env.example) para todos os limites. Segredos não são retornados por nenhuma API, armazenados no banco ou inseridos no HTML.
+
+## Readiness
+
+`GET /api/readiness?refresh=true` verifica sem negociar: PostgreSQL, Gamma, CLOB, WebSocket, books, wallet, private key, proxy, autenticação L2, Polygon RPC, balance pUSD, allowances collateral/CTF, geoblock, kill switch, risk config, circuit breaker, `LIVE_TRADING_ENABLED` e `DRY_RUN`.
+
+O geoblock usa exclusivamente `GET https://polymarket.com/api/geoblock`, com cache de 5 minutos e comportamento fail-closed. Não existe VPN, proxy de evasão ou bypass geográfico no projeto. Paper continua ativo quando live está bloqueado.
+
+## Execução e leg risk
+
+Cada execução percorre `DETECTED → VALIDATING → SUBMITTING`, podendo seguir para `PARTIAL → HEDGING`, e termina em `COMPLETED`, `ABORTED` ou `FAILED`. Antes de enviar, books, VWAP, liquidez, slippage, fees, edge e risco são recalculados. Um `orderID` não é considerado fill: apenas `status=matched` do CLOB V2 conta como FOK executada.
+
+Se uma perna falhar, existe uma única tentativa conservadora de completar a outra perna, seguida de uma única tentativa de unwind. O incidente aciona cooldown/circuit breaker. Unwind falho ativa kill switch e mostra `EXPOSURE REQUIRES ATTENTION`.
+
+## Banco
+
+A inicialização idempotente cria, sem apagar dados: `runtime_config`, `opportunities`, `executions`, `execution_legs`, `paper_trades`, `risk_events` e `system_events`, preservando também as tabelas legadas `trades` e `positions`. Colunas novas de `opportunities` são adicionadas via migration aditiva.
+
+## Testes
 
 ```bash
-# Run full suite
-pytest tests/ -v
-
-# Run with coverage
-pytest tests/ -v --cov=src --cov-report=term-missing
+ruff check src tests
+black --check src tests
+pytest -q
 ```
 
-### Test Coverage
+Todos os testes de segurança mockam rede; CI não depende da Polymarket estar disponível.
 
-| Area | Test Class / File |
-|------|-------------------|
-| VWAP depth analysis | `test_depth_aware.py::TestBuySetDepthAnalysis`, `TestSellSetDepthAnalysis` |
-| Minimum order / liquidity | `test_config_guards.py::TestMinTradeAndStaleGuards` |
-| Max trade size / position | `test_config_guards.py::TestTradeSizeLimits`, `TestEngineRespectsLimits` |
-| Stale book rejection | `test_config_guards.py::TestEngineRespectsLimits`, `test_depth_aware.py` |
-| Partial fill | `test_depth_aware.py::TestPaperSimulatorLegFailure` |
-| Leg failure injection | `test_depth_aware.py::TestPaperSimulatorLegFailure` |
-| Kill switch | `test_config_guards.py::TestKillSwitch` |
-| Paper/live guards | `test_config_guards.py::TestPaperLiveGuards` |
-| Circuit breaker | `test_config_guards.py::TestRiskManagerCircuitBreaker` |
-| Leg risk buffer | `test_depth_aware.py::TestLegRisk` |
-| Fees per leg | `test_depth_aware.py::TestLegRisk` |
-| Paper simulator logging | `test_depth_aware.py::TestPaperSimulatorLogging` |
+## Referências oficiais
 
-## CI/CD
+- [CLOB V2 migration](https://docs.polymarket.com/v2-migration)
+- [Fees](https://docs.polymarket.com/trading/fees)
+- [Geographic restrictions](https://docs.polymarket.com/api-reference/geoblock)
+- [Place orders](https://docs.polymarket.com/api-reference/trade/post-a-new-order)
+- [Contracts](https://docs.polymarket.com/resources/contracts)
 
-GitHub Actions workflow (`.github/workflows/ci.yml`):
+## Aviso
 
-1. **Lint** – `ruff check` + `black --check`
-2. **Test** – `pytest` across Python 3.11, 3.12, 3.13 with coverage
-3. **Docker Build** – Buildx with GHA cache, smoke-test health endpoint
-
-## Project Structure
-
-```
-cordyceps/
-├── src/
-│   ├── config.py           # Settings with paper/live guards
-│   ├── main.py             # ArbitrageBot orchestrator
-│   ├── api_server.py       # FastAPI health endpoint
-│   ├── paper_engine.py     # Paper trading engine
-│   ├── scanner.py          # Market discovery loop
-│   ├── database.py         # SQLAlchemy models
-│   ├── client/             # CLOB API client
-│   ├── engine/             # VWAP depth-aware detector
-│   ├── execution/          # Order executor + paper simulator
-│   ├── observer/           # WebSocket + state manager
-│   ├── settlement/         # CTF merge agent
-│   ├── risk/               # Circuit breaker + loss limits
-│   └── utils/              # Logging, metrics, health
-├── tests/                  # pytest suite (39+ tests)
-├── docs/DOCKPLOY.md        # Deployment guide
-├── Dockerfile              # Slim non-root production image
-├── docker-compose.yml      # Bot + PostgreSQL with resource limits
-├── .dockerignore           # Build context exclusions
-├── .github/workflows/      # CI: lint, test, docker build
-└── .env.example            # Template for environment config
-```
-
-## Disclaimer
-
-This software is for educational purposes. Trading on prediction markets involves risk. Use at your own discretion.
-
-## License
-
-MIT
+Software experimental. Arbitragem e recuperação de pernas podem gerar perdas. A existência de `ready=true` reduz riscos operacionais conhecidos, mas não garante execução ou lucro.

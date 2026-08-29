@@ -1,16 +1,4 @@
-"""
-FastAPI API server and single-process orchestrator for Cordyceps.
-
-Starts market discovery, websocket consumer/resync, scanner, paper engine,
-and the HTTP API on PORT=8000.  A singleton guard prevents duplicate scanner
-tasks across uvicorn workers.
-
-Health endpoint exposes:
-  - mode (paper / live)
-  - database (connection string)
-  - polymarket (API connectivity hints)
-  - websocket (connection status)
-"""
+"""FastAPI orchestrator and authenticated operational dashboard."""
 
 from __future__ import annotations
 
@@ -18,206 +6,406 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Body, FastAPI, Form, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import desc
+from sqlmodel import Session, select
 
+from src.admin_auth import AdminAuth
 from src.config import get_settings
+from src.database import (
+    Execution,
+    Opportunity,
+    PaperTrade,
+    RiskEvent,
+    SystemEvent,
+    add_system_event,
+    get_engine,
+    init_db,
+)
 from src.main import ArbitrageBot
 from src.paper_engine import PaperEngine
+from src.runtime import RuntimeState, get_runtime, reset_runtime
+from src.safety import GeoblockService, ReadinessService, WalletService
 from src.scanner import Scanner
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
+WEB_DIR = Path(__file__).with_name("web")
 
-# ---------------------------------------------------------------------------
-# Module-level state (shared across lifespan and route handlers)
-# ---------------------------------------------------------------------------
 _bot: ArbitrageBot | None = None
 _scanner: Scanner | None = None
 _paper_engine: PaperEngine | None = None
+_runtime: RuntimeState | None = None
+_admin: AdminAuth | None = None
+_geoblock: GeoblockService | None = None
+_wallet: WalletService | None = None
+_readiness: ReadinessService | None = None
 _startup_ts: float | None = None
 
 
-# ---------------------------------------------------------------------------
-# Factories – overridable in tests via monkeypatch
-# ---------------------------------------------------------------------------
-
-
 def create_bot() -> ArbitrageBot:
-    """Create (but do not start) the shared ArbitrageBot instance."""
-    return ArbitrageBot()
+    return ArbitrageBot(runtime=_runtime, paper_engine=_paper_engine)
 
 
 def create_paper_engine() -> PaperEngine:
-    return PaperEngine()
+    return PaperEngine(settings=_runtime.settings if _runtime else None)
 
 
-def create_scanner(
-    observer: Any = None,
-    fetcher: Any = None,
-) -> Scanner:
-    return Scanner(observer=observer, fetcher=fetcher)
-
-
-# ---------------------------------------------------------------------------
-# Lifespan – runs once per process
-# ---------------------------------------------------------------------------
+def create_scanner(observer: Any = None, fetcher: Any = None) -> Scanner:
+    settings = _runtime.settings if _runtime else get_settings()
+    return Scanner(
+        observer=observer,
+        fetcher=fetcher,
+        scan_interval_seconds=settings.scan_interval_seconds,
+        market_limit=settings.market_limit,
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup / shutdown lifecycle for the orchestrator."""
-    global _bot, _scanner, _paper_engine, _startup_ts
+    global _admin, _bot, _geoblock, _paper_engine, _readiness, _runtime, _scanner, _startup_ts, _wallet
 
-    # ---- startup ----
     _startup_ts = time.time()
-    _bot = create_bot()
+    reset_runtime()
+    _runtime = get_runtime()  # Always starts disarmed, even when persisted config exists.
+    init_db(_runtime.settings)
+    _admin = AdminAuth(_runtime.settings)
     _paper_engine = create_paper_engine()
-
-    # Kick off the bot's background tasks (observer, engine, executor).
-    # ArbitrageBot.start() blocks on a shutdown event, so we spawn it as a
-    # fire-and-forget task.
-    asyncio.create_task(_bot.start(), name="cordyceps-bot")
-
-    # Brief yield so the observer can initialise before scanner attaches
+    _bot = create_bot()
+    bot_task = asyncio.create_task(_bot.start(), name="cordyceps-bot")
     await asyncio.sleep(0.05)
-
-    # Attach the scanner to the bot's observer for market discovery / resync
     _scanner = create_scanner(
-        observer=getattr(_bot, "_observer", None),
-        fetcher=getattr(_bot, "_fetcher", None),
+        observer=getattr(_bot, "_observer", None), fetcher=getattr(_bot, "_fetcher", None)
     )
     await _scanner.start()
-
-    settings = get_settings()
+    _geoblock = GeoblockService(_runtime.settings)
+    _wallet = WalletService(_runtime.settings, getattr(_bot, "_client", None))
+    _readiness = ReadinessService(_runtime, _geoblock, _wallet, _bot)
     logger.info(
-        "orchestrator.started",
-        port=settings.port,
-        mode=settings.trading_mode,
+        "orchestrator.started", port=_runtime.settings.port, mode=_runtime.settings.trading_mode
     )
-
-    yield  # ---- server is live ----
-
-    # ---- shutdown ----
-    if _scanner is not None:
-        await _scanner.stop()
+    try:
+        yield
+    finally:
+        if _runtime:
+            _runtime.disarm()
+        if _scanner:
+            await _scanner.stop()
+        if _bot:
+            _bot.shutdown()
+            try:
+                await asyncio.wait_for(bot_task, timeout=5)
+            except (TimeoutError, asyncio.CancelledError):
+                bot_task.cancel()
         _scanner = None
-    if _bot is not None:
-        try:
-            await _bot.stop()
-        except Exception as exc:  # pragma: no cover – defensive
-            logger.warning("bot_stop_error", error=str(exc))
         _bot = None
-    _paper_engine = None
-    logger.info("orchestrator.stopped")
+        _paper_engine = None
+        logger.info("orchestrator.stopped")
 
 
-# ---------------------------------------------------------------------------
-# FastAPI application
-# ---------------------------------------------------------------------------
-
-app = FastAPI(
-    title="Cordyceps Orchestrator",
-    description="Polymarket arbitrage bot API",
-    version="0.1.0",
-    lifespan=lifespan,
-)
+app = FastAPI(title="Cordyceps", version="0.2.0", lifespan=lifespan)
+app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
-# ---------------------------------------------------------------------------
-# Health endpoint
-# ---------------------------------------------------------------------------
+def _require_admin(request: Request) -> None:
+    if _admin is None:
+        raise HTTPException(status_code=503, detail="Application is starting")
+    _admin.require(request)
+
+
+def _token_ids() -> list[str]:
+    if not _bot or not getattr(_bot, "_observer", None):
+        return []
+    return _bot._observer.state.get_all_tracked_tokens()
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page() -> str:
+    return """<!doctype html><html><head><meta name=viewport content='width=device-width'>
+    <title>Cordyceps Admin</title><link rel=stylesheet href=/assets/dashboard.css></head>
+    <body class=login><form method=post><h1>CORDYCEPS</h1><p>Administrative access</p>
+    <input name=token type=password autocomplete=current-password placeholder='ADMIN_TOKEN' required>
+    <button type=submit>Authenticate</button></form></body></html>"""
+
+
+@app.post("/login")
+async def login(request: Request, token: str = Form(...)) -> RedirectResponse:
+    if _admin is None:
+        raise HTTPException(status_code=503, detail="Application is starting")
+    session_id = _admin.login(token)
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        "cordyceps_admin",
+        session_id,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        max_age=8 * 3600,
+    )
+    return response
+
+
+@app.post("/logout")
+async def logout(request: Request) -> RedirectResponse:
+    _require_admin(request)
+    _admin.logout(request)
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie("cordyceps_admin")
+    return response
+
+
+@app.get("/")
+async def dashboard(request: Request):
+    try:
+        _require_admin(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return RedirectResponse("/login", status_code=303)
+        raise
+    return FileResponse(WEB_DIR / "dashboard.html")
 
 
 @app.get("/health")
 async def health_endpoint() -> dict[str, Any]:
-    """
-    Comprehensive health payload.
-
-    Returns:
-        mode          – paper or live
-        database      – database_url from settings
-        polymarket    – CLOB / Gamma API status hint
-        websocket     – connection + health status
-        uptime        – seconds since orchestrator started
-        scanner       – whether the scanner loop is active
-        paper_engine  – simulated trade stats
-    """
-    settings = get_settings()
-
-    # Bot status (may not be ready yet during early startup)
-    bot_health: dict[str, Any] = {}
-    bot_running = False
-    active_markets = 0
-    if _bot is not None:
-        try:
-            status = _bot.get_status()
-            bot_health = status.get("health", {})
-            bot_running = status.get("running", False)
-            active_markets = status.get("active_markets", 0)
-        except Exception:  # pragma: no cover – defensive
-            pass
-
-    # Paper engine stats
-    paper_stats: dict[str, Any] = {}
-    if _paper_engine is not None:
-        paper_stats = {
-            "trade_count": _paper_engine.trade_count,
-            "total_profit": _paper_engine.total_profit,
-        }
-
+    settings = _runtime.settings if _runtime else get_settings()
+    status = _bot.get_status() if _bot else {}
+    observer = status.get("observer_stats", {})
+    paper = status.get("paper") or {
+        "trade_count": _paper_engine.trade_count if _paper_engine else 0,
+        "total_profit": _paper_engine.total_profit if _paper_engine else 0,
+    }
     return {
+        "status": status.get("health", {}).get("status", "starting"),
         "mode": settings.trading_mode,
-        "database": settings.database_url,
-        "polymarket": {
-            "clob_url": settings.clob_api_url,
-            "gamma_url": settings.gamma_api_url,
-            "ws_url": settings.clob_ws_url,
-        },
-        "websocket": {
-            "connected": bot_health.get("websocket_connected", False),
-            "status": bot_health.get("status", "unknown"),
-        },
+        "running": status.get("running", False),
+        "database": "configured",
+        "websocket": {"connected": status.get("health", {}).get("websocket_connected", False)},
         "scanner": {
             "running": _scanner.is_running if _scanner else False,
             "tracked_markets": len(_scanner._tracked) if _scanner else 0,
         },
-        "paper_engine": paper_stats,
-        "active_markets": active_markets,
-        "running": bot_running,
-        "uptime": round(time.time() - _startup_ts, 2) if _startup_ts else 0.0,
+        "paper_engine": paper,
+        "books_with_liquidity": observer.get("books_with_liquidity", 0),
+        "active_markets": status.get("active_markets", 0),
+        "uptime": round(time.time() - _startup_ts, 2) if _startup_ts else 0,
     }
-
-
-# ---------------------------------------------------------------------------
-# Status / debug endpoint
-# ---------------------------------------------------------------------------
 
 
 @app.get("/status")
 async def status_endpoint() -> dict[str, Any]:
-    """Lightweight status for liveness probes."""
-    if _bot is not None:
-        return _bot.get_status()
-    return {"running": False}
+    health = await health_endpoint()
+    return {key: health[key] for key in ("status", "mode", "running", "websocket", "uptime")}
 
 
-# ---------------------------------------------------------------------------
-# CLI entrypoint
-# ---------------------------------------------------------------------------
+@app.get("/api/status")
+async def api_status(request: Request) -> dict[str, Any]:
+    _require_admin(request)
+    settings = _runtime.settings
+    status = _bot.get_status() if _bot else {}
+    observer = status.get("observer_stats", {})
+    engine = status.get("engine_stats", {})
+    risk = status.get("risk", {})
+    geo = await _geoblock.check()
+    _runtime.geo_allowed = geo.checked and not geo.blocked
+    wallet = _wallet.snapshot.public_dict()
+    health_name = status.get("health", {}).get("status", "stopped")
+    if _runtime.kill_switch or geo.blocked:
+        health_name = "blocked"
+    return {
+        "name": settings.app_name,
+        "mode": settings.trading_mode,
+        "status": health_name,
+        "running": status.get("running", False),
+        "armed": _runtime.armed,
+        "kill_switch": _runtime.kill_switch,
+        "exposure_requires_attention": _runtime.incomplete_exposure_usd > 0,
+        "uptime": round(time.time() - _startup_ts, 2) if _startup_ts else 0,
+        "websocket": status.get("health", {}).get("websocket_connected", False),
+        "clob_status": "healthy"
+        if status.get("health", {}).get("websocket_connected", False)
+        else "stopped",
+        "scanner": _scanner.is_running if _scanner else False,
+        "markets": status.get("active_markets", 0),
+        "tokens": observer.get("tracked_tokens", 0),
+        "books_with_liquidity": observer.get("books_with_liquidity", 0),
+        "book_updates": observer.get("book_updates", 0),
+        "strategy": engine,
+        "trades": status.get("health", {}).get("metrics", {}),
+        "paper": status.get("paper", {}),
+        "risk": risk,
+        "current_exposure": risk.get("current_exposure", 0),
+        "incomplete_exposure": _runtime.incomplete_exposure_usd,
+        "geoblock": geo.public_dict(),
+        "wallet": wallet,
+        "secrets": {
+            "private_key_configured": bool(settings.private_key),
+            "clob_credentials_configured": bool(
+                settings.polymarket_api_key
+                and settings.polymarket_api_secret
+                and settings.polymarket_api_passphrase
+            ),
+        },
+    }
+
+
+CONFIG_DESCRIPTIONS = {
+    "max_trade_usd": "Máximo em pUSD utilizado por oportunidade.",
+    "max_total_exposure_usd": "Máximo exposto simultaneamente.",
+    "max_daily_loss_usd": "Perda diária máxima antes de bloquear operações.",
+    "max_open_trades": "Número máximo de execuções abertas.",
+    "min_profit_threshold": "Retorno mínimo legado, aplicado junto ao edge líquido.",
+    "min_net_edge": "Vantagem mínima após fees, slippage e leg risk.",
+    "min_net_profit_usd": "Lucro líquido mínimo por oportunidade.",
+    "max_slippage_pct": "Slippage máximo aceito na revalidação.",
+    "orderbook_stale_ms": "Idade máxima do order book.",
+    "min_trade_shares": "Quantidade mínima de shares.",
+    "max_leg_imbalance_usd": "Exposição direcional máxima durante recuperação.",
+    "leg_timeout_ms": "Timeout de cada perna.",
+    "circuit_breaker_failure_threshold": "Falhas consecutivas antes do circuit breaker.",
+    "circuit_breaker_cooldown_minutes": "Cooldown após circuit breaker.",
+    "simulated_latency_ms": "Latência aplicada ao paper engine.",
+    "market_limit": "Máximo de mercados monitorados.",
+    "scan_interval_seconds": "Intervalo de descoberta de mercados.",
+}
+
+
+@app.get("/api/config")
+async def get_config(request: Request) -> dict[str, Any]:
+    _require_admin(request)
+    return {
+        "values": _runtime.settings.runtime_values(),
+        "descriptions": CONFIG_DESCRIPTIONS,
+        "profile": "Live Test - $10 Wallet",
+    }
+
+
+@app.put("/api/config")
+async def update_config(request: Request, values: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _require_admin(request)
+    try:
+        updated = _runtime.update_config(values)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if _bot:
+        _bot.apply_runtime_config()
+    if _scanner:
+        _scanner._market_limit = _runtime.settings.market_limit
+        _scanner._interval = _runtime.settings.scan_interval_seconds
+    with Session(get_engine(_runtime.settings)) as session:
+        add_system_event(
+            session,
+            "runtime_config_updated",
+            "Operational configuration updated",
+            component="admin",
+            details={"fields": sorted(values)},
+        )
+    return {"values": updated, "restart_required": False}
+
+
+@app.get("/api/readiness")
+async def readiness(request: Request, refresh: bool = False) -> dict[str, Any]:
+    _require_admin(request)
+    return await _readiness.check(force=refresh)
+
+
+@app.post("/api/wallet/refresh")
+async def refresh_wallet(request: Request) -> dict[str, Any]:
+    _require_admin(request)
+    _wallet.client = getattr(_bot, "_client", None)
+    return (await _wallet.refresh(_token_ids())).public_dict()
+
+
+@app.post("/api/control/kill")
+async def kill(request: Request) -> dict[str, Any]:
+    _require_admin(request)
+    _runtime.kill()
+    with Session(get_engine(_runtime.settings)) as session:
+        add_system_event(
+            session, "kill_switch", "Kill switch activated", severity="warning", component="admin"
+        )
+    return {"kill_switch": True, "armed": False}
+
+
+@app.post("/api/control/resume")
+async def resume(request: Request) -> dict[str, Any]:
+    _require_admin(request)
+    _runtime.resume()
+    return {"kill_switch": False, "armed": False}
+
+
+@app.post("/api/control/arm")
+async def arm(request: Request, payload: dict[str, str] = Body(...)) -> dict[str, Any]:
+    _require_admin(request)
+    if _runtime.settings.trading_mode not in {"live_test", "live"}:
+        raise HTTPException(status_code=409, detail="TRADING_MODE is not live_test or live")
+    if payload.get("confirmation") != "CORDYCEPS LIVE":
+        raise HTTPException(status_code=422, detail="Confirmation phrase does not match")
+    result = await _readiness.check(force=True)
+    if not result["ready"]:
+        raise HTTPException(status_code=409, detail={"message": "Live readiness failed", **result})
+    _runtime.arm()
+    return {"armed": True, "mode": _runtime.settings.trading_mode}
+
+
+@app.post("/api/control/disarm")
+async def disarm(request: Request) -> dict[str, Any]:
+    _require_admin(request)
+    _runtime.disarm()
+    return {"armed": False}
+
+
+@app.get("/api/history")
+async def history(request: Request, limit: int = 20) -> dict[str, Any]:
+    _require_admin(request)
+    limit = max(1, min(limit, 100))
+    with Session(get_engine(_runtime.settings)) as session:
+        return {
+            "opportunities": [
+                row.model_dump(mode="json")
+                for row in session.exec(
+                    select(Opportunity).order_by(desc(Opportunity.timestamp)).limit(limit)
+                ).all()
+            ],
+            "executions": [
+                row.model_dump(mode="json")
+                for row in session.exec(
+                    select(Execution).order_by(desc(Execution.created_at)).limit(limit)
+                ).all()
+            ],
+            "paper_trades": [
+                row.model_dump(mode="json")
+                for row in session.exec(
+                    select(PaperTrade).order_by(desc(PaperTrade.timestamp)).limit(limit)
+                ).all()
+            ],
+            "risk_events": [
+                row.model_dump(mode="json")
+                for row in session.exec(
+                    select(RiskEvent).order_by(desc(RiskEvent.timestamp)).limit(limit)
+                ).all()
+            ],
+            "system_events": [
+                row.model_dump(mode="json")
+                for row in session.exec(
+                    select(SystemEvent).order_by(desc(SystemEvent.timestamp)).limit(limit)
+                ).all()
+            ],
+        }
 
 
 def run_server(port: int | None = None) -> None:
-    """Start uvicorn programmatically."""
     import uvicorn
 
     settings = get_settings()
-    port = port or settings.port
     uvicorn.run(
         "src.api_server:app",
         host="0.0.0.0",
-        port=port,
+        port=port or settings.port,
         log_level=settings.log_level.lower(),
         access_log=False,
     )

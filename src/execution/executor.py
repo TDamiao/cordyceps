@@ -1,29 +1,30 @@
-"""
-Order execution module for arbitrage trades.
+"""Fail-closed multi-leg execution state machine for CLOB V2."""
 
-Handles order submission, tracking, and error handling.
-"""
+from __future__ import annotations
 
 import asyncio
 import time
+import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
-from enum import Enum
+from enum import Enum, StrEnum
+
+from sqlmodel import Session, select
 
 from src.client import OrderSide, PolymarketClient
 from src.config import get_settings
-from src.contracts.ctf import CTFContract, MergeResult
+from src.database import Execution, ExecutionLeg, RiskEvent, get_engine
 from src.engine.detector import ArbitrageOpportunity, SignalType
 from src.execution.rate_limiter import RateLimiter
 from src.risk.manager import RiskManager
+from src.runtime import RuntimeState, get_runtime
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 class OrderStatus(Enum):
-    """Status of an order."""
-
     PENDING = "pending"
     SUBMITTED = "submitted"
     FILLED = "filled"
@@ -32,10 +33,19 @@ class OrderStatus(Enum):
     FAILED = "failed"
 
 
+class ExecutionState(StrEnum):
+    DETECTED = "DETECTED"
+    VALIDATING = "VALIDATING"
+    SUBMITTING = "SUBMITTING"
+    PARTIAL = "PARTIAL"
+    HEDGING = "HEDGING"
+    COMPLETED = "COMPLETED"
+    ABORTED = "ABORTED"
+    FAILED = "FAILED"
+
+
 @dataclass
 class OrderResult:
-    """Result of a single order submission."""
-
     token_id: str
     order_id: str | None = None
     status: OrderStatus = OrderStatus.PENDING
@@ -47,415 +57,378 @@ class OrderResult:
 
 @dataclass
 class ExecutionResult:
-    """Result of executing an arbitrage opportunity."""
-
     opportunity: ArbitrageOpportunity
+    execution_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    state: ExecutionState = ExecutionState.DETECTED
     orders: list[OrderResult] = field(default_factory=list)
     success: bool = False
     total_filled: Decimal = Decimal("0")
     realized_profit: Decimal = Decimal("0")
     error: str | None = None
     execution_time_ms: int = 0
-    merge_result: MergeResult | None = None
+    merge_result: object | None = None
 
     @property
     def all_filled(self) -> bool:
-        """Check if all orders were filled."""
-        return all(o.status == OrderStatus.FILLED for o in self.orders)
+        return bool(self.orders) and all(
+            order.status == OrderStatus.FILLED for order in self.orders
+        )
 
     @property
     def any_filled(self) -> bool:
-        """Check if any orders were filled."""
-        return any(o.status == OrderStatus.FILLED for o in self.orders)
+        return any(
+            order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+            and order.filled_size > 0
+            for order in self.orders
+        )
 
 
 class OrderExecutor:
-    """
-    Executes arbitrage trades on Polymarket.
-
-    Handles:
-    - FOK (Fill-or-Kill) order creation for atomic execution
-    - Batch order submission
-    - Rate limiting
-    - Error handling and recovery
-    - Atomic merging of positions (HFT)
-    """
+    """Serializes live execution, revalidates, and resolves partial-leg exposure."""
 
     def __init__(
         self,
         client: PolymarketClient,
         rate_limiter: RateLimiter | None = None,
-        ctf_contract: CTFContract | None = None,
+        ctf_contract: object | None = None,
         risk_manager: RiskManager | None = None,
+        runtime: RuntimeState | None = None,
+        revalidator: (
+            Callable[[ArbitrageOpportunity], Awaitable[ArbitrageOpportunity | None]] | None
+        ) = None,
     ):
-        """
-        Initialize order executor.
-
-        Args:
-            client: Polymarket client for order submission
-            rate_limiter: Rate limiter instance
-            ctf_contract: CTF contract wrapper for atomic merges
-            risk_manager: Risk manager instance
-        """
         self._client = client
         self._rate_limiter = rate_limiter or RateLimiter()
+        self._runtime = runtime or get_runtime()
+        self._settings = self._runtime.settings if runtime else get_settings()
+        self._risk = risk_manager or RiskManager(self._settings, self._runtime)
+        self._revalidator = revalidator
         self._ctf = ctf_contract
-        self._risk = risk_manager or RiskManager()
-        self._settings = get_settings()
-
         self._orders_submitted = 0
         self._orders_filled = 0
         self._orders_failed = 0
+        self._active_state: ExecutionState | None = None
 
-    async def execute_opportunity(
-        self,
-        opportunity: ArbitrageOpportunity,
-    ) -> ExecutionResult:
-        """
-        Execute an arbitrage opportunity.
-
-        Submits orders for all legs of the trade. For BUY_SET, buys all
-        outcomes. For SELL_SET, sells all outcomes.
-
-        If atomic merge is enabled and we bought all legs, it triggers
-        mergePositions() immediately.
-
-        Args:
-            opportunity: Detected arbitrage opportunity
-
-        Returns:
-            ExecutionResult with details of execution
-        """
-        start_time = time.time()
-
+    async def execute_opportunity(self, opportunity: ArbitrageOpportunity) -> ExecutionResult:
         result = ExecutionResult(opportunity=opportunity)
+        start = time.monotonic()
+        self._persist_execution(result)
 
-        # Determine order side based on signal type
-        order_side = (
-            OrderSide.BUY if opportunity.signal_type == SignalType.BUY_SET else OrderSide.SELL
-        )
+        if self._runtime.execution_lock.locked():
+            result.error = "another arbitrage execution is active"
+            self._transition(result, ExecutionState.ABORTED)
+            return result
 
-        logger.info(
-            "Executing opportunity",
-            market_id=opportunity.market_id,
-            signal_type=opportunity.signal_type.value,
-            size=str(opportunity.max_size),
-            expected_profit=str(opportunity.net_profit),
-        )
-
-        try:
-            # 1. Check Circuit Breaker & Risk Limits
-            can_trade, reason = self._risk.can_trade()
-            if not can_trade:
-                logger.warning("Risk check failed", reason=reason)
-                result.error = f"Risk check failed: {reason}"
-                return result
-
-            # 2. Check Slippage (Price Validity)
-            # Assuming opportunity.prices are [yes_price, no_price]
-            # This is a bit simplistic as token_ids order matters, but for binary it's usually [0,1] or [1,0]
-            if len(opportunity.prices) == 2:
-                if not self._risk.check_slippage(opportunity.prices[0], opportunity.prices[1]):
-                    result.error = "Slippage check failed (spread > 1.0)"
+        async with self._runtime.execution_lock:
+            self._runtime.active_executions += 1
+            try:
+                self._transition(result, ExecutionState.VALIDATING)
+                allowed, reason = self._runtime.can_submit_live()
+                if not allowed:
+                    result.error = reason
+                    self._transition(result, ExecutionState.ABORTED)
                     return result
 
-            # Submit orders for all tokens simultaneously
-            order_tasks = []
-            for token_id, price in zip(opportunity.token_ids, opportunity.prices):
-                order_tasks.append(
-                    self._submit_order(
-                        token_id=token_id,
-                        side=order_side,
-                        price=price,
-                        size=opportunity.max_size,
+                validated = (
+                    await self._revalidator(opportunity) if self._revalidator else opportunity
+                )
+                if validated is None:
+                    result.error = "opportunity disappeared during revalidation"
+                    self._transition(result, ExecutionState.ABORTED)
+                    return result
+                result.opportunity = validated
+
+                notional = validated.total_cost
+                allowed, reason = self._risk.validate_trade(notional)
+                if not allowed:
+                    result.error = reason
+                    self._transition(result, ExecutionState.ABORTED)
+                    return result
+
+                self._transition(result, ExecutionState.SUBMITTING)
+                side = (
+                    OrderSide.BUY if validated.signal_type == SignalType.BUY_SET else OrderSide.SELL
+                )
+                tasks = [
+                    asyncio.wait_for(
+                        self._submit_order(token_id, side, price, validated.max_size),
+                        timeout=self._settings.leg_timeout_ms / 1000,
                     )
-                )
-
-            # Execute all orders in parallel
-            orders = await asyncio.gather(*order_tasks)
-            result.orders.extend(orders)
-
-            # Check if any orders failed
-            for order_result in orders:
-                if order_result.status == OrderStatus.FAILED:
-                    result.error = f"Order failed for {order_result.token_id}: {order_result.error}"
-                    # Try to cancel others if any failed (though FOK usually fails immediately)
-                    # For FOK, cancellation isn't really needed, but good practice
-                    await self._cancel_pending_orders(result.orders)
-                    break
-
-            # Calculate results
-            result.total_filled = min(
-                (o.filled_size for o in result.orders if o.status == OrderStatus.FILLED),
-                default=Decimal("0"),
-            )
-
-            if result.all_filled:
-                result.success = True
-
-                # Default realized profit based purely on price diff
-                # (Verified by atomic merge later if enabled)
-                result.realized_profit = opportunity.net_profit * (
-                    result.total_filled / opportunity.max_size
-                )
-
-                logger.info(
-                    "Orders filled",
-                    market_id=opportunity.market_id,
-                    filled=str(result.total_filled),
-                )
-
-                # Trigger atomic merge if enabled and we BOUGHT positions
-                if self._settings.use_atomic_merge and self._ctf and order_side == OrderSide.BUY:
-                    await self._handle_atomic_merge(opportunity.market_id, result)
-
-            elif result.any_filled:
-                logger.warning(
-                    "Partial fill - position opened",
-                    market_id=opportunity.market_id,
-                    orders_filled=sum(1 for o in result.orders if o.status == OrderStatus.FILLED),
-                )
-            else:
-                logger.info(
-                    "No fills - opportunity missed",
-                    market_id=opportunity.market_id,
-                )
-
-                # Record success (update PnL)
-                self._risk.record_success(result.realized_profit)
-
-        except Exception as e:
-            result.error = str(e)
-            self._risk.record_failure(str(e))
-            logger.error(
-                "Execution failed",
-                market_id=opportunity.market_id,
-                error=str(e),
-            )
-
-        result.execution_time_ms = int((time.time() - start_time) * 1000)
-        return result
-
-    async def _handle_atomic_merge(self, condition_id: str, result: ExecutionResult) -> None:
-        """
-        Handle atomic merge logic.
-
-        Args:
-            condition_id: Market condition ID
-            result: Execution result to update
-        """
-        logger.info("Attempting atomic merge", condition_id=condition_id)
-
-        # Determine amount to merge (use filled size)
-        # Convert Decimal to int (USDC has 6 decimals, but wait...
-        # shares are 1:1 with USDC collateral, so 1 share = 10^6 units if USDC is 6 decimals?
-        # Actually in CTF, amounts are uint256.
-        # If we bought 10.0 shares, that's 10 * 10^6 raw units usually.
-        # But let's assume `filled_size` is already in human-readable units/shares from the CLOB client.
-        # We need to convert to raw integer for the contract.
-        # Since Polymarket uses USDC (6 decimals), 1 share = 10^6 base units.
-
-        # Prepare retry loop
-        max_retries = 3
-
-        try:
-            # Assuming filled_size is e.g. 10.5 (shares/USDC)
-            # CTF expects raw integer.
-            merge_amount_raw = int(result.total_filled * Decimal("1000000"))
-
-            for attempt in range(1, max_retries + 1):
-                # Calculate gas price override (boost) for retries
-                gas_price_override = None
-                if attempt > 1:
-                    # Fetch current gas price and boost it
-                    try:
-                        base_gas = self._ctf.w3.eth.gas_price
-                        multiplier = 1.0 + (0.2 * (attempt - 1))  # 1.2x, 1.4x
-                        gas_price_override = int(base_gas * multiplier)
-                        logger.info(
-                            "boosting gas for retry",
-                            attempt=attempt,
-                            multiplier=multiplier,
-                            new_gas_gwei=gas_price_override / 1e9,
+                    for token_id, price in zip(validated.token_ids, validated.prices)
+                ]
+                raw_orders = await asyncio.gather(*tasks, return_exceptions=True)
+                for token_id, price, raw in zip(validated.token_ids, validated.prices, raw_orders):
+                    if isinstance(raw, BaseException):
+                        result.orders.append(
+                            OrderResult(
+                                token_id=token_id,
+                                price=price,
+                                status=OrderStatus.FAILED,
+                                error="leg timeout" if isinstance(raw, TimeoutError) else str(raw),
+                            )
                         )
-                    except Exception as e:
-                        logger.warning("Failed to estimate gas for boost", error=str(e))
+                    else:
+                        result.orders.append(raw)
+                self._persist_legs(result)
 
-                merge_res = await self._ctf.merge_positions(
-                    condition_id=condition_id,
-                    amount=merge_amount_raw,
-                    max_gas_price_gwei=self._settings.max_gas_price_gwei,
-                    gas_price_wei_override=gas_price_override,
-                )
+                if result.all_filled:
+                    self._complete(result)
+                    return result
+                if result.any_filled:
+                    self._transition(result, ExecutionState.PARTIAL)
+                    await self._recover_partial(result, side)
+                    return result
 
-                if merge_res.success:
-                    result.merge_result = merge_res
-                    logger.info(
-                        "Atomic merge successful!",
-                        tx_hash=merge_res.tx_hash,
-                        returned_usdc=str(merge_res.amount_returned),
-                        attempt=attempt,
-                    )
-                    return  # Success! Exit loop
+                result.error = result.error or "no leg filled"
+                self._risk.record_failure(result.error)
+                self._transition(result, ExecutionState.FAILED)
+                return result
+            except Exception as exc:
+                result.error = str(exc)
+                self._risk.record_failure(result.error)
+                self._transition(result, ExecutionState.FAILED)
+                return result
+            finally:
+                result.execution_time_ms = int((time.monotonic() - start) * 1000)
+                self._runtime.active_executions = max(0, self._runtime.active_executions - 1)
+                self._persist_execution(result)
 
-                # If failed
-                logger.warning("Atomic merge failed", attempt=attempt, error=merge_res.error)
+    def _complete(self, result: ExecutionResult) -> None:
+        result.total_filled = min(order.filled_size for order in result.orders)
+        result.realized_profit = result.opportunity.net_profit * (
+            result.total_filled / result.opportunity.max_size
+        )
+        result.success = True
+        self._risk.record_success(result.realized_profit)
+        self._transition(result, ExecutionState.COMPLETED)
 
-                if attempt < max_retries:
-                    wait_time = 1.5 * attempt
-                    logger.info(f"Retrying merge in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
+    async def _recover_partial(self, result: ExecutionResult, side: OrderSide) -> None:
+        """One completion attempt, then one unwind attempt. No aggressive retries."""
+        imbalance = sum(
+            order.filled_size * order.price
+            for order in result.orders
+            if order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+        )
+        self._runtime.incomplete_exposure_usd = float(imbalance)
+        self._risk.pause_after_leg_risk("partial fill")
+        self._record_risk(result, "partial_fill", f"Partial exposure: {imbalance} pUSD")
 
-            # If all retries failed
-            logger.error(
-                "CRITICAL: Atomic merge failed after all retries",
-                condition_id=condition_id,
-                final_error=merge_res.error,
+        if imbalance > Decimal(str(self._settings.max_leg_imbalance_usd)):
+            result.error = "leg imbalance exceeds configured maximum"
+
+        self._transition(result, ExecutionState.HEDGING)
+        failed = [order for order in result.orders if order.status == OrderStatus.FAILED]
+        for order in failed:
+            factor = (
+                Decimal("1") + Decimal(str(self._settings.emergency_slippage_pct))
+                if side == OrderSide.BUY
+                else Decimal("1") - Decimal(str(self._settings.emergency_slippage_pct))
             )
-            # Don't fail the whole execution result, as we still hold the positions
-            # We can retry merge later or hold to settlement
+            emergency_price = min(Decimal("0.9999"), max(Decimal("0.0001"), order.price * factor))
+            replacement = await self._submit_order(
+                order.token_id, side, emergency_price, result.opportunity.max_size
+            )
+            if replacement.status == OrderStatus.FILLED:
+                result.orders[result.orders.index(order)] = replacement
 
-        except Exception as e:
-            logger.error("Error in atomic merge process", error=str(e))
+        if result.all_filled:
+            self._runtime.incomplete_exposure_usd = 0
+            self._complete(result)
+            return
+
+        unwind_ok = True
+        reverse = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
+        for order in list(result.orders):
+            if order.status not in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED):
+                continue
+            factor = (
+                Decimal("1") - Decimal(str(self._settings.emergency_slippage_pct))
+                if reverse == OrderSide.SELL
+                else Decimal("1") + Decimal(str(self._settings.emergency_slippage_pct))
+            )
+            unwind_price = min(Decimal("0.9999"), max(Decimal("0.0001"), order.price * factor))
+            unwind = await self._submit_order(
+                order.token_id, reverse, unwind_price, order.filled_size
+            )
+            unwind_ok = unwind_ok and unwind.status == OrderStatus.FILLED
+
+        if unwind_ok:
+            self._runtime.incomplete_exposure_usd = 0
+            result.error = "partial fill unwound; realized loss requires reconciliation"
+            self._transition(result, ExecutionState.ABORTED)
+        else:
+            result.error = "EXPOSURE REQUIRES ATTENTION: emergency unwind failed"
+            self._runtime.kill()
+            self._record_risk(result, "unwind_failed", result.error, severity="critical")
+            self._transition(result, ExecutionState.FAILED)
 
     async def _submit_order(
-        self,
-        token_id: str,
-        side: OrderSide,
-        price: Decimal,
-        size: Decimal,
+        self, token_id: str, side: OrderSide, price: Decimal, size: Decimal
     ) -> OrderResult:
-        """
-        Submit a single FOK order.
-
-        Args:
-            token_id: Token to trade
-            side: BUY or SELL
-            price: Limit price
-            size: Order size
-
-        Returns:
-            OrderResult with status and details
-        """
-        result = OrderResult(token_id=token_id, price=price)
-
-        try:
-            # Apply rate limiting
-            await self._rate_limiter.acquire_order()
-
-            self._orders_submitted += 1
-
-            # Submit FOK order
-            order_id = self._client.create_fok_order(
-                token_id=token_id,
-                side=side,
-                price=price,
-                size=size,
+        result = OrderResult(token_id=token_id, price=price, status=OrderStatus.SUBMITTED)
+        await self._rate_limiter.acquire_order()
+        self._orders_submitted += 1
+        response = await asyncio.to_thread(
+            self._client.create_fok_order,
+            token_id=token_id,
+            side=side,
+            price=price,
+            size=size,
+        )
+        # Legacy test doubles may return just an id. Production requires CLOB's matched status.
+        if isinstance(response, str):
+            response = {"success": True, "orderID": response, "status": "matched"}
+        response = response or {}
+        result.order_id = response.get("orderID")
+        status = str(response.get("status", "")).lower()
+        if response.get("success") and status == "matched":
+            filled = size
+            if result.order_id:
+                try:
+                    details = await asyncio.to_thread(self._client.get_order, result.order_id)
+                    matched_raw = details.get("size_matched")
+                    if matched_raw is not None:
+                        filled = Decimal(str(matched_raw)) / Decimal("1000000")
+                except Exception:
+                    # Matched FOK is authoritative; detail lookup is best-effort.
+                    pass
+            result.filled_size = min(size, filled)
+            result.status = (
+                OrderStatus.FILLED if result.filled_size >= size else OrderStatus.PARTIALLY_FILLED
             )
-
-            if order_id:
-                result.order_id = order_id
-                result.status = OrderStatus.FILLED  # FOK orders are immediately filled or cancelled
-                result.filled_size = size
-                self._orders_filled += 1
-
-                logger.debug(
-                    "Order filled",
-                    token_id=token_id[:16],
-                    order_id=order_id,
-                    side=side.value,
-                    price=str(price),
-                    size=str(size),
-                )
+            self._orders_filled += 1
+        else:
+            if result.order_id and status in {"live", "delayed"}:
+                await asyncio.to_thread(self._client.cancel_order, result.order_id)
+                result.status = OrderStatus.CANCELLED
             else:
                 result.status = OrderStatus.FAILED
-                result.error = "Order not filled (FOK rejected)"
-                self._orders_failed += 1
-
-        except Exception as e:
-            result.status = OrderStatus.FAILED
-            result.error = str(e)
+            result.error = response.get("errorMsg") or f"FOK was not matched (status={status})"
             self._orders_failed += 1
-
-            logger.error(
-                "Order submission failed",
-                token_id=token_id[:16],
-                error=str(e),
-            )
-
         return result
 
-    async def _cancel_pending_orders(self, orders: list[OrderResult]) -> None:
-        """
-        Cancel any pending orders (for cleanup after failure).
+    def _transition(self, result: ExecutionResult, state: ExecutionState) -> None:
+        result.state = state
+        self._active_state = (
+            state
+            if state
+            in {
+                ExecutionState.VALIDATING,
+                ExecutionState.SUBMITTING,
+                ExecutionState.PARTIAL,
+                ExecutionState.HEDGING,
+            }
+            else None
+        )
+        self._persist_execution(result)
+        logger.info("execution.state", execution_id=result.execution_id, state=state.value)
 
-        Args:
-            orders: List of order results to check and cancel
-        """
-        for order in orders:
-            if order.order_id and order.status == OrderStatus.SUBMITTED:
-                try:
-                    await self._rate_limiter.acquire_request()
-                    self._client.cancel_order(order.order_id)
-                    order.status = OrderStatus.CANCELLED
-                    logger.debug("Order cancelled", order_id=order.order_id)
-                except Exception as e:
-                    logger.warning(
-                        "Failed to cancel order",
-                        order_id=order.order_id,
-                        error=str(e),
+    def _persist_execution(self, result: ExecutionResult) -> None:
+        try:
+            with Session(get_engine(self._settings)) as session:
+                row = session.exec(
+                    select(Execution).where(Execution.execution_id == result.execution_id)
+                ).first()
+                if row is None:
+                    row = Execution(
+                        execution_id=result.execution_id,
+                        market_id=result.opportunity.market_id,
+                        mode=self._settings.trading_mode,
                     )
+                row.state = result.state.value
+                filled_orders = [order for order in result.orders if order.filled_size > 0]
+                row.filled_quantity = float(
+                    result.total_filled
+                    or sum((order.filled_size for order in filled_orders), Decimal("0"))
+                )
+                if filled_orders:
+                    total_quantity = sum(
+                        (order.filled_size for order in filled_orders), Decimal("0")
+                    )
+                    row.average_price = float(
+                        sum(
+                            (order.filled_size * order.price for order in filled_orders),
+                            Decimal("0"),
+                        )
+                        / total_quantity
+                    )
+                row.fees = float(result.opportunity.fees)
+                row.realized_pnl = float(result.realized_profit)
+                row.latency_ms = result.execution_time_ms
+                row.failure_reason = result.error or ""
+                row.updated_at = int(time.time() * 1000)
+                session.add(row)
+                session.commit()
+        except Exception as exc:
+            logger.warning("execution.persist_failed", error=str(exc))
+
+    def _persist_legs(self, result: ExecutionResult) -> None:
+        try:
+            with Session(get_engine(self._settings)) as session:
+                for order in result.orders:
+                    session.add(
+                        ExecutionLeg(
+                            execution_id=result.execution_id,
+                            token_id=order.token_id,
+                            status=order.status.value,
+                            order_id=order.order_id or "",
+                            requested_quantity=float(result.opportunity.max_size),
+                            filled_quantity=float(order.filled_size),
+                            limit_price=float(order.price),
+                            average_price=float(order.price),
+                            error=order.error or "",
+                        )
+                    )
+                session.commit()
+        except Exception as exc:
+            logger.warning("execution.legs_persist_failed", error=str(exc))
+
+    def _record_risk(
+        self, result: ExecutionResult, event_type: str, message: str, severity: str = "warning"
+    ) -> None:
+        try:
+            with Session(get_engine(self._settings)) as session:
+                session.add(
+                    RiskEvent(
+                        severity=severity,
+                        event_type=event_type,
+                        message=message,
+                        execution_id=result.execution_id,
+                    )
+                )
+                session.commit()
+        except Exception:
+            pass
 
     async def cancel_all_orders(self) -> bool:
-        """
-        Cancel all open orders (emergency stop).
-
-        Returns:
-            True if successful
-        """
         try:
             await self._rate_limiter.acquire_request()
-            return self._client.cancel_all_orders()
-        except Exception as e:
-            logger.error("Failed to cancel all orders", error=str(e))
+            return await asyncio.to_thread(self._client.cancel_all_orders)
+        except Exception as exc:
+            logger.error("Failed to cancel all orders", error=str(exc))
             return False
 
     @property
     def stats(self) -> dict:
-        """Get executor statistics."""
         return {
             "orders_submitted": self._orders_submitted,
             "orders_filled": self._orders_filled,
             "orders_failed": self._orders_failed,
+            "active_state": self._active_state.value if self._active_state else None,
             "fill_rate": (
-                self._orders_filled / self._orders_submitted if self._orders_submitted > 0 else 0
+                self._orders_filled / self._orders_submitted if self._orders_submitted else 0
             ),
             **self._rate_limiter.stats,
         }
 
     def reset_stats(self) -> None:
-        """Reset statistics."""
-        self._orders_submitted = 0
-        self._orders_filled = 0
-        self._orders_failed = 0
+        self._orders_submitted = self._orders_filled = self._orders_failed = 0
         self._rate_limiter.reset_stats()
 
 
 async def execute_arbitrage(
     client: PolymarketClient,
     opportunity: ArbitrageOpportunity,
-    ctf_contract: CTFContract | None = None,
+    ctf_contract: object | None = None,
 ) -> ExecutionResult:
-    """
-    Convenience function to execute a single arbitrage opportunity.
-
-    Args:
-        client: Polymarket client
-        opportunity: Opportunity to execute
-        ctf_contract: CTF contract for atomic merges
-
-    Returns:
-        ExecutionResult
-    """
-    executor = OrderExecutor(client, ctf_contract=ctf_contract)
-    return await executor.execute_opportunity(opportunity)
+    return await OrderExecutor(client, ctf_contract=ctf_contract).execute_opportunity(opportunity)

@@ -1,7 +1,8 @@
 import os
 import sys
 
-from py_clob_client.client import ClobClient
+from eth_account import Account
+from py_clob_client_v2 import ClobClient
 
 sys.path.append(os.getcwd())
 from src.config import get_settings
@@ -10,7 +11,7 @@ from src.config import get_settings
 def check_proxy_ownership():
     settings = get_settings()
 
-    print(f"Checking Proxy for EOA: {settings.private_key[:6]}...{settings.private_key[-4:]}")
+    print(f"Checking Proxy for EOA: {Account.from_key(settings.private_key).address}")
 
     # Initialize client WITHOUT a proxy first, to see if it can find one or derive one
     host = "https://clob.polymarket.com/"
@@ -28,7 +29,7 @@ def check_proxy_ownership():
         # Ask API for the proxy associated with this EOA
         # The library usually does this internally or we can try to derive credentials
         # create_or_derive_api_creds usually triggers proxy check
-        client.create_or_derive_api_creds()
+        client.create_or_derive_api_key()
         print("✅ Credentials derived successfully.")
 
         # Checking computed proxy...

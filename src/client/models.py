@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OrderSide(StrEnum):
@@ -23,6 +23,7 @@ class OrderType(StrEnum):
 
     GTC = "GTC"  # Good Till Cancelled
     FOK = "FOK"  # Fill Or Kill
+    FAK = "FAK"  # Fill And Kill
     GTD = "GTD"  # Good Till Date
 
 
@@ -127,8 +128,7 @@ class TradingSignal(BaseModel):
     total_cost: str = Field(..., description="Total cost/revenue")
     timestamp: int = Field(..., description="Signal generation timestamp")
 
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
 
 @dataclass

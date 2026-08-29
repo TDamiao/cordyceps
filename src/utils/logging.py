@@ -20,8 +20,31 @@ def setup_logging() -> None:
     log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 
     # Configure processors based on format
+    secret_values = tuple(
+        value
+        for value in (
+            settings.private_key,
+            settings.polymarket_api_secret,
+            settings.polymarket_api_passphrase,
+            settings.admin_token,
+        )
+        if value
+    )
+
+    def redact_secrets(_logger, _method_name, event_dict):
+        sensitive_keys = {"private_key", "api_secret", "passphrase", "admin_token"}
+        for key, value in list(event_dict.items()):
+            if key.lower() in sensitive_keys:
+                event_dict[key] = "[REDACTED]"
+            elif isinstance(value, str):
+                for secret in secret_values:
+                    value = value.replace(secret, "[REDACTED]")
+                event_dict[key] = value
+        return event_dict
+
     shared_processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
+        redact_secrets,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),

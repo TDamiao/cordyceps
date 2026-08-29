@@ -149,9 +149,9 @@ class TestMinTradeAndStaleGuards:
         s = _make_settings()
         assert s.orderbook_stale_ms > 0
 
-    def test_orderbook_stale_ms_can_be_zero(self):
-        s = _make_settings(orderbook_stale_ms="0")
-        assert s.orderbook_stale_ms == 0
+    def test_orderbook_stale_ms_cannot_disable_guard(self):
+        with pytest.raises(ValueError):
+            _make_settings(orderbook_stale_ms="0")
 
 
 # ---------------------------------------------------------------------------

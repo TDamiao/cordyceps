@@ -14,7 +14,8 @@ from decimal import Decimal
 from enum import Enum
 
 from src.client.models import OrderBook, OrderBookLevel
-from src.config import TradingConfig, get_settings
+from src.config import get_settings
+from src.fees import FeeParameters, calculate_taker_fee
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -48,6 +49,11 @@ class ArbitrageOpportunity:
     executable_quantity: Decimal = Decimal("0")  # quantity we can fill
     edge: Decimal = Decimal("0")  # raw edge (BUY: 1-sum_vwap; SELL: sum_vwap-1)
     roi: Decimal = Decimal("0")  # net_profit / total_cost
+    gross_edge: Decimal = Decimal("0")
+    expected_slippage: Decimal = Decimal("0")
+    leg_risk_buffer: Decimal = Decimal("0")
+    net_edge: Decimal = Decimal("0")
+    fee_source: str = "fallback"
     timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
 
     @property
@@ -66,8 +72,14 @@ class ArbitrageConfig:
     max_slippage_pct: Decimal = Decimal("0.005")  # Max slippage tolerance
     orderbook_stale_ms: int = 3000  # Max age of orderbook before rejection
     leg_risk_buffer: Decimal = Decimal("0.0")  # Extra buffer subtracted from edge
-    taker_fee: Decimal = Decimal(str(TradingConfig.TAKER_FEE))
-    maker_fee: Decimal = Decimal(str(TradingConfig.MAKER_FEE))
+    # Compatibility override for tests. Production treats this as a V2 curve rate,
+    # never as a flat percentage of notional.
+    taker_fee: Decimal = Decimal("0.072")
+    fee_exponent: Decimal = Decimal("1")
+    maker_fee: Decimal = Decimal("0")
+    min_net_edge: Decimal = Decimal("0")
+    min_net_profit_usd: Decimal = Decimal("0")
+    min_trade_shares: Decimal = Decimal("1")
 
 
 class ArbitrageEngine:
@@ -86,13 +98,40 @@ class ArbitrageEngine:
         settings = get_settings()
         self.config = config or ArbitrageConfig(
             min_profit_threshold=Decimal(str(settings.min_profit_threshold)),
-            max_position_size=Decimal(str(settings.max_position_size)),
+            max_position_size=Decimal(str(settings.max_trade_usd)),
+            min_liquidity=Decimal(str(settings.min_trade_shares)),
             max_slippage_pct=Decimal(str(settings.max_slippage_pct)),
             orderbook_stale_ms=settings.orderbook_stale_ms,
+            leg_risk_buffer=Decimal(str(settings.leg_risk_buffer)),
+            taker_fee=Decimal(str(settings.fee_fallback_rate)),
+            min_net_edge=Decimal(str(settings.min_net_edge)),
+            min_net_profit_usd=Decimal(str(settings.min_net_profit_usd)),
+            min_trade_shares=Decimal(str(settings.min_trade_shares)),
         )
-        self._opportunities_found = 0
-        self._opportunities_executed = 0
-        self._stale_books_rejected = 0
+        self._metrics = {
+            "markets_analyzed": 0,
+            "buy_opportunities_raw": 0,
+            "sell_opportunities_raw": 0,
+            "opportunities_found": 0,
+            "opportunities_executed": 0,
+            "rejected_stale": 0,
+            "rejected_liquidity": 0,
+            "rejected_edge": 0,
+            "rejected_profit": 0,
+            "rejected_slippage": 0,
+            "rejected_fee": 0,
+            "rejected_risk": 0,
+            "best_buy_edge_seen": 0.0,
+            "best_sell_edge_seen": 0.0,
+            "best_net_edge_seen": 0.0,
+            "best_net_profit_seen": 0.0,
+            "avg_buy_ask_sum": 0.0,
+            "avg_sell_bid_sum": 0.0,
+        }
+        self._buy_sum_total = Decimal("0")
+        self._sell_sum_total = Decimal("0")
+        self._closest: list[dict] = []
+        self._fee_params: FeeParameters | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -102,19 +141,50 @@ class ArbitrageEngine:
         self,
         market_id: str,
         order_books: dict[str, OrderBook],
+        fee_params: FeeParameters | None = None,
     ) -> ArbitrageOpportunity | None:
+        self._metrics["markets_analyzed"] += 1
+        self._fee_params = fee_params
         if len(order_books) != 2:
             logger.debug("Skipping non-binary market", market_id=market_id)
             return None
 
         # Stale-book guard
         if self._has_stale_book(order_books):
-            self._stale_books_rejected += 1
+            self._metrics["rejected_stale"] += 1
             return None
+
+        ask_sum = calculate_price_sum(order_books, "ask")
+        bid_sum = calculate_price_sum(order_books, "bid")
+        count = self._metrics["markets_analyzed"]
+        if ask_sum is not None:
+            self._buy_sum_total += ask_sum
+            self._metrics["avg_buy_ask_sum"] = float(self._buy_sum_total / count)
+            raw = Decimal("1") - ask_sum
+            self._metrics["best_buy_edge_seen"] = max(
+                self._metrics["best_buy_edge_seen"], float(raw)
+            )
+            if raw > 0:
+                self._metrics["buy_opportunities_raw"] += 1
+                self._record_closest_raw(
+                    market_id, SignalType.BUY_SET, order_books, raw, "ask"
+                )
+        if bid_sum is not None:
+            self._sell_sum_total += bid_sum
+            self._metrics["avg_sell_bid_sum"] = float(self._sell_sum_total / count)
+            raw = bid_sum - Decimal("1")
+            self._metrics["best_sell_edge_seen"] = max(
+                self._metrics["best_sell_edge_seen"], float(raw)
+            )
+            if raw > 0:
+                self._metrics["sell_opportunities_raw"] += 1
+                self._record_closest_raw(
+                    market_id, SignalType.SELL_SET, order_books, raw, "bid"
+                )
 
         buy_opp = self._check_buy_set(market_id, order_books)
         if buy_opp and buy_opp.is_profitable:
-            self._opportunities_found += 1
+            self._record_found(buy_opp)
             logger.info(
                 "BUY_SET opportunity found",
                 market_id=market_id,
@@ -125,7 +195,7 @@ class ArbitrageEngine:
 
         sell_opp = self._check_sell_set(market_id, order_books)
         if sell_opp and sell_opp.is_profitable:
-            self._opportunities_found += 1
+            self._record_found(sell_opp)
             logger.info(
                 "SELL_SET opportunity found",
                 market_id=market_id,
@@ -139,15 +209,93 @@ class ArbitrageEngine:
     @property
     def stats(self) -> dict:
         return {
-            "opportunities_found": self._opportunities_found,
-            "opportunities_executed": self._opportunities_executed,
-            "stale_books_rejected": self._stale_books_rejected,
+            **self._metrics,
+            "stale_books_rejected": self._metrics["rejected_stale"],
+            "closest_opportunities": list(self._closest),
         }
 
     def reset_stats(self) -> None:
-        self._opportunities_found = 0
-        self._opportunities_executed = 0
-        self._stale_books_rejected = 0
+        for key in self._metrics:
+            self._metrics[key] = 0.0 if key.startswith(("best_", "avg_")) else 0
+        self._buy_sum_total = Decimal("0")
+        self._sell_sum_total = Decimal("0")
+        self._closest.clear()
+
+    def _record_found(self, opportunity: ArbitrageOpportunity) -> None:
+        self._metrics["opportunities_found"] += 1
+        self._metrics["best_net_edge_seen"] = max(
+            self._metrics["best_net_edge_seen"], float(opportunity.net_edge)
+        )
+        self._metrics["best_net_profit_seen"] = max(
+            self._metrics["best_net_profit_seen"], float(opportunity.net_profit)
+        )
+        row = {
+                "market_id": opportunity.market_id,
+                "signal": opportunity.signal_type.value,
+                "net_edge": float(opportunity.net_edge),
+                "net_profit": float(opportunity.net_profit),
+                "timestamp": opportunity.timestamp,
+            }
+        self._closest = [
+            existing
+            for existing in self._closest
+            if not (
+                existing["market_id"] == opportunity.market_id
+                and existing["signal"] == opportunity.signal_type.value
+            )
+        ]
+        self._closest.append(row)
+        self._closest = sorted(self._closest, key=lambda row: row["net_edge"], reverse=True)[:20]
+
+    def _record_closest_raw(
+        self,
+        market_id: str,
+        signal: SignalType,
+        books: dict[str, OrderBook],
+        gross_edge: Decimal,
+        side: str,
+    ) -> None:
+        levels = [
+            book.best_ask if side == "ask" else book.best_bid for book in books.values()
+        ]
+        if any(level is None for level in levels):
+            return
+        prices = [level.price for level in levels if level]
+        size = min(level.size for level in levels if level)
+        fee_per_share, _ = self._fees(Decimal("1"), prices)
+        net_edge = gross_edge - fee_per_share - self.config.leg_risk_buffer
+        row = {
+            "market_id": market_id,
+            "signal": signal.value,
+            "gross_edge": float(gross_edge),
+            "net_edge": float(net_edge),
+            "net_profit": float(net_edge * size),
+            "timestamp": int(time.time() * 1000),
+        }
+        self._closest = [
+            existing
+            for existing in self._closest
+            if not (
+                existing["market_id"] == market_id and existing["signal"] == signal.value
+            )
+        ]
+        self._closest.append(row)
+        self._closest = sorted(self._closest, key=lambda item: item["net_edge"], reverse=True)[:20]
+
+    def _fees(self, quantity: Decimal, prices: list[Decimal]) -> tuple[Decimal, str]:
+        params = self._fee_params or FeeParameters(
+            rate=self.config.taker_fee,
+            exponent=self.config.fee_exponent,
+            source="fallback",
+        )
+        try:
+            return (
+                sum(calculate_taker_fee(quantity, price, params) for price in prices),
+                params.source,
+            )
+        except ValueError:
+            self._metrics["rejected_fee"] += 1
+            return Decimal("Infinity"), params.source
 
     # ------------------------------------------------------------------
     # Stale-book check
@@ -231,7 +379,11 @@ class ArbitrageEngine:
             total_executable = new_total
             filled_any = True
 
-        if total_executable < self.config.min_liquidity or not profitable or total_executable <= 0:
+        if total_executable < max(self.config.min_liquidity, self.config.min_trade_shares):
+            self._metrics["rejected_liquidity"] += 1
+            return None
+        if not profitable or total_executable <= 0:
+            self._metrics["rejected_edge"] += 1
             return None
 
         # Compute final VWAP
@@ -240,14 +392,30 @@ class ArbitrageEngine:
         vwap_prices = [cum_cost[i] / cum_size[i] for i in range(len(token_ids))]
         vwap_prices = [v.quantize(Decimal("0.01")) for v in vwap_prices]
         vwap_sum = sum(vwap_prices)
+        best_sum = sum(leg_levels[i][0].price for i in range(len(token_ids)))
         total_cost = vwap_sum * total_executable
         expected_payout = total_executable
-        gross_profit = expected_payout - total_cost
-        fees = self.config.taker_fee * total_cost * len(token_ids)
-        net_profit = gross_profit - fees
+        gross_edge = Decimal("1") - best_sum
+        gross_profit = gross_edge * total_executable
+        expected_slippage = max(Decimal("0"), (vwap_sum - best_sum) * total_executable)
+        if (
+            self.config.max_slippage_pct > 0
+            and total_cost
+            and expected_slippage / total_cost > self.config.max_slippage_pct
+        ):
+            self._metrics["rejected_slippage"] += 1
+            return None
+        fees, fee_source = self._fees(total_executable, vwap_prices)
+        leg_buffer = self.config.leg_risk_buffer * total_executable
+        net_profit = gross_profit - expected_slippage - fees - leg_buffer
         profit_pct = net_profit / total_cost if total_cost > 0 else Decimal("0")
+        net_edge = net_profit / total_executable if total_executable else Decimal("0")
 
-        if profit_pct < self.config.min_profit_threshold:
+        if net_edge < max(self.config.min_profit_threshold, self.config.min_net_edge):
+            self._metrics["rejected_edge"] += 1
+            return None
+        if net_profit < self.config.min_net_profit_usd:
+            self._metrics["rejected_profit"] += 1
             return None
 
         edge = Decimal("1") - vwap_sum
@@ -270,6 +438,11 @@ class ArbitrageEngine:
             executable_quantity=total_executable,
             edge=edge,
             roi=roi,
+            gross_edge=gross_edge,
+            expected_slippage=expected_slippage,
+            leg_risk_buffer=leg_buffer,
+            net_edge=net_edge,
+            fee_source=fee_source,
         )
 
     # ------------------------------------------------------------------
@@ -329,7 +502,11 @@ class ArbitrageEngine:
             total_executable = new_total
             filled_any = True
 
-        if total_executable < self.config.min_liquidity or not profitable or total_executable <= 0:
+        if total_executable < max(self.config.min_liquidity, self.config.min_trade_shares):
+            self._metrics["rejected_liquidity"] += 1
+            return None
+        if not profitable or total_executable <= 0:
+            self._metrics["rejected_edge"] += 1
             return None
 
         if any(c == Decimal("0") for c in cum_size):
@@ -337,14 +514,30 @@ class ArbitrageEngine:
         vwap_prices = [cum_rev[i] / cum_size[i] for i in range(len(token_ids))]
         vwap_prices = [v.quantize(Decimal("0.000001")) for v in vwap_prices]
         vwap_sum = sum(vwap_prices)
+        best_sum = sum(leg_levels[i][0].price for i in range(len(token_ids)))
         total_revenue = vwap_sum * total_executable
         split_cost = total_executable
-        gross_profit = total_revenue - split_cost
-        fees = self.config.taker_fee * total_revenue * len(token_ids)
-        net_profit = gross_profit - fees
+        gross_edge = best_sum - Decimal("1")
+        gross_profit = gross_edge * total_executable
+        expected_slippage = max(Decimal("0"), (best_sum - vwap_sum) * total_executable)
+        if (
+            self.config.max_slippage_pct > 0
+            and split_cost
+            and expected_slippage / split_cost > self.config.max_slippage_pct
+        ):
+            self._metrics["rejected_slippage"] += 1
+            return None
+        fees, fee_source = self._fees(total_executable, vwap_prices)
+        leg_buffer = self.config.leg_risk_buffer * total_executable
+        net_profit = gross_profit - expected_slippage - fees - leg_buffer
         profit_pct = net_profit / split_cost if split_cost > 0 else Decimal("0")
+        net_edge = net_profit / total_executable if total_executable else Decimal("0")
 
-        if profit_pct < self.config.min_profit_threshold:
+        if net_edge < max(self.config.min_profit_threshold, self.config.min_net_edge):
+            self._metrics["rejected_edge"] += 1
+            return None
+        if net_profit < self.config.min_net_profit_usd:
+            self._metrics["rejected_profit"] += 1
             return None
 
         edge = vwap_sum - Decimal("1")
@@ -367,6 +560,11 @@ class ArbitrageEngine:
             executable_quantity=total_executable,
             edge=edge,
             roi=roi,
+            gross_edge=gross_edge,
+            expected_slippage=expected_slippage,
+            leg_risk_buffer=leg_buffer,
+            net_edge=net_edge,
+            fee_source=fee_source,
         )
 
     # ------------------------------------------------------------------

@@ -136,9 +136,9 @@ class TestConfig:
         assert Contracts.CTF.startswith("0x")
 
     def test_trading_config_constants(self):
-        """Test trading configuration values."""
+        """Legacy fixed fee constants must not be available in CLOB V2."""
         from src.config import TradingConfig
 
-        assert TradingConfig.TAKER_FEE == 0.0001
-        assert TradingConfig.MAKER_FEE == 0.0
+        assert not hasattr(TradingConfig, "TAKER_FEE")
+        assert not hasattr(TradingConfig, "MAKER_FEE")
         assert TradingConfig.SIGNATURE_TYPE_POLY == 1

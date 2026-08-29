@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from src.config import get_settings
+from src.config import Settings, get_settings
+from src.runtime import RuntimeState
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -38,10 +39,13 @@ class RiskManager:
     - Slippage Check: Verifies spread prices before execution.
     """
 
-    def __init__(self):
+    def __init__(self, settings: Settings | None = None, runtime: RuntimeState | None = None):
         """Initialize risk manager."""
-        self._settings = get_settings()
+        self._runtime = runtime
+        self._settings = settings or (runtime.settings if runtime else get_settings())
         self._state = RiskState()
+        self._current_exposure = Decimal("0")
+        self._open_trades = 0
 
         logger.info(
             "RiskManager initialized",
@@ -59,6 +63,12 @@ class RiskManager:
         """
         self._check_daily_reset()
 
+        if self._runtime:
+            self._settings = self._runtime.settings
+            allowed, reason = self._runtime.can_submit_live()
+            if self._settings.trading_mode != "paper" and not allowed:
+                return False, reason
+
         # 1. Check Circuit Breaker
         if self._state.is_paused:
             if time.time() < self._state.pause_until:
@@ -75,6 +85,26 @@ class RiskManager:
             )
 
         return True, "OK"
+
+    def validate_trade(self, notional: Decimal) -> tuple[bool, str]:
+        allowed, reason = self.can_trade()
+        if not allowed:
+            return allowed, reason
+        if notional <= 0 or notional > Decimal(str(self._settings.max_trade_usd)):
+            return False, "trade size exceeds MAX_TRADE_USD"
+        if self._current_exposure + notional > Decimal(str(self._settings.max_total_exposure_usd)):
+            return False, "global exposure limit exceeded"
+        if self._open_trades >= self._settings.max_open_trades:
+            return False, "maximum open trades reached"
+        return True, "OK"
+
+    def open_exposure(self, notional: Decimal) -> None:
+        self._current_exposure += notional
+        self._open_trades += 1
+
+    def close_exposure(self, notional: Decimal) -> None:
+        self._current_exposure = max(Decimal("0"), self._current_exposure - notional)
+        self._open_trades = max(0, self._open_trades - 1)
 
     def record_success(self, pnl: Decimal = Decimal("0")):
         """
@@ -113,6 +143,12 @@ class RiskManager:
 
         # Trigger circuit breaker if threshold reached
         if self._state.consecutive_failures >= self._settings.circuit_breaker_failure_threshold:
+            self._trigger_circuit_breaker()
+
+    def pause_after_leg_risk(self, reason: str) -> None:
+        """Every partial-leg incident gets a cooldown, even below the failure threshold."""
+        self.record_failure(reason)
+        if not self._state.is_paused:
             self._trigger_circuit_breaker()
 
     def check_slippage(self, yes_price: Decimal, no_price: Decimal) -> bool:
@@ -178,3 +214,15 @@ class RiskManager:
             self._state.total_trades_today = 0
             # We do NOT reset consecutive failures or active circuit breaker on day change
             # (safety first), but could be argued either way. keeping strict for now.
+
+    @property
+    def state(self) -> dict:
+        return {
+            "consecutive_failures": self._state.consecutive_failures,
+            "daily_pnl": float(self._state.daily_pnl),
+            "daily_loss": float(min(Decimal("0"), self._state.daily_pnl)),
+            "is_paused": self._state.is_paused,
+            "pause_until": self._state.pause_until,
+            "current_exposure": float(self._current_exposure),
+            "open_trades": self._open_trades,
+        }
