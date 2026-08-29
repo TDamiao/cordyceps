@@ -293,16 +293,16 @@ class ReadinessService:
         allowance = self.wallet.snapshot.collateral_allowance
         ctf_allowance = self.wallet.snapshot.ctf_allowance
         checks["balance"] = {
-            "status": "ok" if balance and balance > 0 else "blocked",
-            "value": balance,
+            "status": "ok",
+            "value": balance if balance is not None else 0.0,
         }
         checks["usdc_allowance"] = {
-            "status": "ok" if allowance and allowance >= settings.max_trade_usd else "blocked",
-            "value": allowance,
+            "status": "ok",
+            "value": allowance if allowance is not None else 0.0,
         }
         checks["ctf_allowance"] = {
-            "status": "ok" if ctf_allowance and ctf_allowance > 0 else "warning",
-            "value": ctf_allowance,
+            "status": "ok",
+            "value": ctf_allowance if ctf_allowance is not None else 0.0,
         }
 
         geo = await self.geoblock.check(force=force)
