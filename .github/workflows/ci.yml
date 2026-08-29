@@ -24,7 +24,7 @@ jobs:
       - name: Ruff check
         run: ruff check src/ tests/
       - name: Black format check
-        run: black --check src/ tests/
+        run: black --check --diff src/ tests/
 
   # -------------------------------------------------------------------
   # Test (matrix: Python 3.11 – 3.13)
