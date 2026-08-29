@@ -1,5 +1,5 @@
 # Cordyceps – Docker Compose
-# Production-oriented deployment for Dockploy and local Docker Compose with Gluetun VPN.
+# Production-oriented deployment for Dokploy and local Docker Compose with Gluetun VPN Proxy.
 
 services:
   gluetun:
@@ -14,8 +14,8 @@ services:
       - OPENVPN_USER=${NORDVPN_SERVICE_USER}
       - OPENVPN_PASSWORD=${NORDVPN_SERVICE_PASSWORD}
       - SERVER_COUNTRIES=${NORDVPN_COUNTRY:-Brazil}
-    ports:
-      - "${PORT:-8000}:8000" # Exposto através do Gluetun
+      - HTTPPROXY=on
+      - HTTPPROXY_LISTENING_ADDRESS=:8888
     networks:
       - cordyceps
     restart: unless-stopped
@@ -26,7 +26,6 @@ services:
       dockerfile: Dockerfile
       target: production
     restart: unless-stopped
-    network_mode: "service:gluetun" # Roteia todo o tráfego de rede do bot pela VPN
     environment:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       PYTHONUNBUFFERED: "1"
@@ -37,6 +36,12 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://cordyceps:${POSTGRES_PASSWORD}@postgres:5432/cordyceps}
       PORT: "8000"
+      HTTP_PROXY: ${HTTP_PROXY:-http://gluetun:8888}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://gluetun:8888}
+      http_proxy: ${HTTP_PROXY:-http://gluetun:8888}
+      https_proxy: ${HTTPS_PROXY:-http://gluetun:8888}
+      NO_PROXY: localhost,127.0.0.1,postgres,gluetun
+      no_proxy: localhost,127.0.0.1,postgres,gluetun
       MAX_TRADE_USD: ${MAX_TRADE_USD:-1}
       MAX_TOTAL_EXPOSURE_USD: ${MAX_TOTAL_EXPOSURE_USD:-2}
       MAX_DAILY_LOSS_USD: ${MAX_DAILY_LOSS_USD:-1}
@@ -61,11 +66,15 @@ services:
       CLOB_API_KEY: ${CLOB_API_KEY:-}
       CLOB_API_SECRET: ${CLOB_API_SECRET:-}
       CLOB_API_PASSPHRASE: ${CLOB_API_PASSPHRASE:-}
+    ports:
+      - "${PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       gluetun:
         condition: service_started
+    networks:
+      - cordyceps
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
