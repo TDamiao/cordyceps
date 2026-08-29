@@ -58,7 +58,7 @@ services:
       SIMULATED_LATENCY_MS: ${SIMULATED_LATENCY_MS:-250}
       MARKET_LIMIT: ${MARKET_LIMIT:-50}
       SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-60}
-      POLYGON_RPC_URL: ${POLYGON_RPC_URL:-https://polygon-rpc.com}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL:-https://polygon-bor-rpc.publicnode.com}
       CHAIN_ID: ${CHAIN_ID:-137}
       SIGNATURE_TYPE: ${SIGNATURE_TYPE:-1}
       PRIVATE_KEY: ${PRIVATE_KEY:-}

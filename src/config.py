@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     admin_token: str = ""
 
     database_url: str = "sqlite:///./cordyceps.db"
-    polygon_rpc_url: str = "https://polygon-rpc.com"
+    polygon_rpc_url: str = "https://polygon-bor-rpc.publicnode.com"
     gamma_api_url: str = "https://gamma-api.polymarket.com"
     clob_api_url: str = "https://clob.polymarket.com"
     clob_ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"

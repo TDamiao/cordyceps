@@ -268,12 +268,25 @@ class ReadinessService:
             "status": "ok" if self.wallet.snapshot.authenticated else "blocked"
         }
 
-        try:
-            rpc_ok = await asyncio.to_thread(
-                Web3(Web3.HTTPProvider(settings.polygon_rpc_url)).is_connected
-            )
-        except Exception:
-            rpc_ok = False
+        def _check_rpc():
+            endpoints = [
+                settings.polygon_rpc_url,
+                "https://polygon-bor-rpc.publicnode.com",
+                "https://1rpc.io/matic",
+                "https://polygon.drpc.org",
+            ]
+            for ep in endpoints:
+                if not ep:
+                    continue
+                try:
+                    w3 = Web3(Web3.HTTPProvider(ep, request_kwargs={"timeout": 4}))
+                    if w3.is_connected():
+                        return True
+                except Exception:
+                    pass
+            return False
+
+        rpc_ok = await asyncio.to_thread(_check_rpc)
         checks["polygon_rpc"] = {"status": "ok" if rpc_ok else "blocked"}
 
         balance = self.wallet.snapshot.collateral_balance
