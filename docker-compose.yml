@@ -1,30 +1,38 @@
 # Cordyceps – Docker Compose
-# Local development and production deployment
+# Production-oriented deployment for Dockploy and local Docker Compose.
 
 services:
-  # =================================================================
-  # Application
-  # =================================================================
   bot:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
-    container_name: cordyceps-bot
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      - LOG_FORMAT=json
-      - PYTHONUNBUFFERED=1
-      - TRADING_MODE=${TRADING_MODE:-paper}
-      - DATABASE_URL=postgresql+psycopg://cordyceps:${POSTGRES_PASSWORD:-cordyceps}@postgres:5432/cordyceps
-      - PORT=8000
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      PYTHONUNBUFFERED: "1"
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
+      KILL_SWITCH: ${KILL_SWITCH:-false}
+      DATABASE_URL: postgresql+psycopg://cordyceps:${POSTGRES_PASSWORD}@postgres:5432/cordyceps
+      PORT: "8000"
+      MAX_TRADE_USD: ${MAX_TRADE_USD:-1}
+      MAX_TOTAL_EXPOSURE_USD: ${MAX_TOTAL_EXPOSURE_USD:-5}
+      MAX_DAILY_LOSS_USD: ${MAX_DAILY_LOSS_USD:-1}
+      MIN_NET_EDGE: ${MIN_NET_EDGE:-0.01}
+      MIN_NET_PROFIT_USD: ${MIN_NET_PROFIT_USD:-0.01}
+      MAX_SLIPPAGE_PCT: ${MAX_SLIPPAGE_PCT:-0.005}
+      ORDERBOOK_STALE_MS: ${ORDERBOOK_STALE_MS:-3000}
+      SIMULATED_LATENCY_MS: ${SIMULATED_LATENCY_MS:-250}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL:-https://polygon-rpc.com}
+      CHAIN_ID: ${CHAIN_ID:-137}
+      PRIVATE_KEY: ${PRIVATE_KEY:-}
+      PROXY_ADDRESS: ${PROXY_ADDRESS:-}
+      CLOB_API_KEY: ${CLOB_API_KEY:-}
+      CLOB_API_SECRET: ${CLOB_API_SECRET:-}
+      CLOB_API_PASSPHRASE: ${CLOB_API_PASSPHRASE:-}
     ports:
       - "${PORT:-8000}:8000"
-    volumes:
-      - bot_data:/app/data
-      - bot_logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,40 +43,31 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s
     deploy:
       resources:
         limits:
           cpus: "1.0"
           memory: 512M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  # =================================================================
-  # PostgreSQL
-  # =================================================================
   postgres:
     image: postgres:16-alpine
-    container_name: cordyceps-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: cordyceps
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cordyceps}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: cordyceps
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
       - cordyceps
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cordyceps"]
+      test: ["CMD-SHELL", "pg_isready -U cordyceps -d cordyceps"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -76,11 +75,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
+          cpus: "0.5"
           memory: 256M
-        reservations:
-          cpus: "0.1"
-          memory: 64M
     logging:
       driver: json-file
       options:
@@ -93,8 +89,4 @@ networks:
 
 volumes:
   pgdata:
-    driver: local
-  bot_data:
-    driver: local
-  bot_logs:
     driver: local
