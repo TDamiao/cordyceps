@@ -216,7 +216,7 @@ class WebSocketClient:
             # malformed JSON.
             if isinstance(message, str):
                 stripped = message.strip()
-                if stripped and stripped[0] not in "[{\"":
+                if stripped and stripped[0] not in '[{"':
                     logger.warning("Received websocket text response", message=stripped[:100])
                     continue
 
