@@ -50,6 +50,9 @@ class StateManager:
         self._token_to_market: dict[str, str] = {}
         self._order_books: dict[str, OrderBook] = {}
         self._lock = asyncio.Lock()
+        self._book_updates = 0
+        self._complete_market_callbacks = 0
+        self._untracked_updates = 0
 
     @property
     def markets(self) -> dict[str, MarketState]:
@@ -58,6 +61,21 @@ class StateManager:
     @property
     def order_books(self) -> dict[str, OrderBook]:
         return self._order_books.copy()
+
+    @property
+    def stats(self) -> dict:
+        complete_markets = sum(1 for market in self._markets.values() if market.is_complete)
+        books_with_liquidity = sum(
+            1 for book in self._order_books.values() if book.bids or book.asks
+        )
+        return {
+            "book_updates": self._book_updates,
+            "complete_market_callbacks": self._complete_market_callbacks,
+            "untracked_updates": self._untracked_updates,
+            "tracked_tokens": len(self._order_books),
+            "books_with_liquidity": books_with_liquidity,
+            "complete_markets": complete_markets,
+        }
 
     def register_market(self, condition_id: str, token_ids: list[str]) -> None:
         if condition_id in self._markets:
@@ -104,12 +122,14 @@ class StateManager:
 
     def handle_book_update(self, token_id: str, data: dict) -> None:
         if token_id not in self._order_books:
+            self._untracked_updates += 1
             logger.debug("Received update for untracked token", token_id=token_id)
             return
 
         try:
             order_book = self._parse_book_update(token_id, data)
             self._order_books[token_id] = order_book
+            self._book_updates += 1
 
             condition_id = self._token_to_market.get(token_id)
             if condition_id and condition_id in self._markets:
@@ -120,6 +140,7 @@ class StateManager:
                 if market.is_complete and self.on_arb_opportunity:
                     try:
                         loop = asyncio.get_running_loop()
+                        self._complete_market_callbacks += 1
                         loop.create_task(
                             self.on_arb_opportunity(condition_id, market.order_books.copy())
                         )
