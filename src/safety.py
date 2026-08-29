@@ -175,6 +175,7 @@ class WalletService:
 
             snap.collateral_balance = clob_bal
             snap.collateral_allowance = clob_allowance
+            logger.info("wallet.refreshed", raw_collateral=collateral, balance=clob_bal, allowance=clob_allowance)
 
             conditional_allowances: list[float] = []
             for token_id in (token_ids or [])[:20]:

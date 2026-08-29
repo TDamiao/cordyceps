@@ -12,7 +12,7 @@ import time
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import JSON, Column, UniqueConstraint, desc, inspect, text
+from sqlalchemy import JSON, BigInteger, Column, UniqueConstraint, desc, inspect, text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ class Trade(SQLModel, table=True):
     success: bool = Field(default=False, description="Whether the trade filled")
     execution_time_ms: int = Field(default=0, ge=0, description="Execution latency")
     status: str = Field(default="pending", description="Order status")
-    timestamp: int = Field(default_factory=_now_ms)
+    timestamp: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 class Opportunity(SQLModel, table=True):
@@ -97,7 +97,7 @@ class Opportunity(SQLModel, table=True):
     decision: str = Field(default="rejected", index=True)
     rejection_reason: str = Field(default="")
     status: str = Field(default="detected")
-    timestamp: int = Field(default_factory=_now_ms)
+    timestamp: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 class Position(SQLModel, table=True):
@@ -113,7 +113,7 @@ class Position(SQLModel, table=True):
     avg_price: float = Field(default=0.0, ge=0, description="Average fill price")
     unrealized_pnl: float = Field(default=0.0, description="Unrealized P&L")
     status: str = Field(default="open", description="Position status")
-    entry_timestamp: int = Field(default_factory=_now_ms)
+    entry_timestamp: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 class RuntimeConfig(SQLModel, table=True):
@@ -125,7 +125,7 @@ class RuntimeConfig(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     key: str = Field(index=True)
     value: Any = Field(sa_column=Column(JSON, nullable=False))
-    updated_at: int = Field(default_factory=_now_ms)
+    updated_at: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 class Execution(SQLModel, table=True):
@@ -143,8 +143,8 @@ class Execution(SQLModel, table=True):
     realized_pnl: float = Field(default=0)
     latency_ms: int = Field(default=0)
     failure_reason: str = Field(default="")
-    created_at: int = Field(default_factory=_now_ms)
-    updated_at: int = Field(default_factory=_now_ms)
+    created_at: int = Field(default_factory=_now_ms, sa_type=BigInteger)
+    updated_at: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 class ExecutionLeg(SQLModel, table=True):
@@ -163,7 +163,7 @@ class ExecutionLeg(SQLModel, table=True):
     fees: float = Field(default=0)
     latency_ms: int = Field(default=0)
     error: str = Field(default="")
-    timestamp: int = Field(default_factory=_now_ms)
+    timestamp: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 class PaperTrade(SQLModel, table=True):
@@ -181,7 +181,7 @@ class PaperTrade(SQLModel, table=True):
     realized_pnl: float = Field(default=0)
     success: bool = Field(default=False)
     latency_ms: int = Field(default=0)
-    timestamp: int = Field(default_factory=_now_ms)
+    timestamp: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 class RiskEvent(SQLModel, table=True):
@@ -193,7 +193,7 @@ class RiskEvent(SQLModel, table=True):
     message: str
     execution_id: str = Field(default="")
     details: dict = Field(default_factory=dict, sa_column=Column(JSON))
-    timestamp: int = Field(default_factory=_now_ms)
+    timestamp: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 class SystemEvent(SQLModel, table=True):
@@ -205,7 +205,7 @@ class SystemEvent(SQLModel, table=True):
     event_type: str = Field(index=True)
     message: str
     details: dict = Field(default_factory=dict, sa_column=Column(JSON))
-    timestamp: int = Field(default_factory=_now_ms)
+    timestamp: int = Field(default_factory=_now_ms, sa_type=BigInteger)
 
 
 # ---------------------------------------------------------------------------
@@ -224,34 +224,59 @@ def init_db(settings: object | None = None, drop_existing: bool = False) -> None
     if drop_existing:
         SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
-    _migrate_opportunities(engine)
+    _migrate_schema(engine)
 
 
-def _migrate_opportunities(engine) -> None:
-    """Add v0.2 opportunity columns without dropping or rewriting existing rows."""
+def _migrate_schema(engine) -> None:
+    """Add v0.2 opportunity columns and ensure BIGINT timestamp columns."""
     inspector = inspect(engine)
-    if "opportunities" not in inspector.get_table_names():
-        return
-    existing = {column["name"] for column in inspector.get_columns("opportunities")}
+    tables = inspector.get_table_names()
     dialect = engine.dialect.name
     json_type = "JSONB" if dialect == "postgresql" else "JSON"
-    additions = {
-        "market": "VARCHAR NOT NULL DEFAULT ''",
-        "best_prices": f"{json_type} NOT NULL DEFAULT '[]'",
-        "vwap_prices": f"{json_type} NOT NULL DEFAULT '[]'",
-        "gross_edge": "FLOAT NOT NULL DEFAULT 0",
-        "fee": "FLOAT NOT NULL DEFAULT 0",
-        "slippage": "FLOAT NOT NULL DEFAULT 0",
-        "size": "FLOAT NOT NULL DEFAULT 0",
-        "decision": "VARCHAR NOT NULL DEFAULT 'rejected'",
-        "rejection_reason": "VARCHAR NOT NULL DEFAULT ''",
-    }
+
     with engine.begin() as connection:
-        for column, definition in additions.items():
-            if column not in existing:
-                connection.execute(
-                    text(f'ALTER TABLE opportunities ADD COLUMN "{column}" {definition}')
-                )
+        # 1. Opportunities columns
+        if "opportunities" in tables:
+            existing = {column["name"] for column in inspector.get_columns("opportunities")}
+            additions = {
+                "market": "VARCHAR NOT NULL DEFAULT ''",
+                "best_prices": f"{json_type} NOT NULL DEFAULT '[]'",
+                "vwap_prices": f"{json_type} NOT NULL DEFAULT '[]'",
+                "gross_edge": "FLOAT NOT NULL DEFAULT 0",
+                "fee": "FLOAT NOT NULL DEFAULT 0",
+                "slippage": "FLOAT NOT NULL DEFAULT 0",
+                "size": "FLOAT NOT NULL DEFAULT 0",
+                "decision": "VARCHAR NOT NULL DEFAULT 'rejected'",
+                "rejection_reason": "VARCHAR NOT NULL DEFAULT ''",
+            }
+            for column, definition in additions.items():
+                if column not in existing:
+                    connection.execute(
+                        text(f'ALTER TABLE opportunities ADD COLUMN "{column}" {definition}')
+                    )
+
+        # 2. If postgresql, ensure all timestamp columns are BIGINT
+        if dialect == "postgresql":
+            ts_columns = [
+                ("runtime_config", "updated_at"),
+                ("trades", "timestamp"),
+                ("opportunities", "timestamp"),
+                ("positions", "entry_timestamp"),
+                ("executions", "created_at"),
+                ("executions", "updated_at"),
+                ("execution_legs", "timestamp"),
+                ("paper_trades", "timestamp"),
+                ("risk_events", "timestamp"),
+                ("system_events", "timestamp"),
+            ]
+            for tbl, col in ts_columns:
+                if tbl in tables:
+                    try:
+                        connection.execute(
+                            text(f'ALTER TABLE {tbl} ALTER COLUMN "{col}" TYPE BIGINT')
+                        )
+                    except Exception:
+                        pass
 
 
 def create_session_db(settings: object | None = None) -> Session:
