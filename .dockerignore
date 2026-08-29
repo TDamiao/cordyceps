@@ -54,9 +54,10 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Documentation (not needed at runtime)
+# Documentation not needed at runtime
+# README.md must remain in the Docker build context because pyproject.toml
+# references it as the project readme during package build.
 docs/
-README.md
 LICENSE
 
 # Node (if any tooling uses it)
