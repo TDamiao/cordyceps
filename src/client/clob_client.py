@@ -285,24 +285,10 @@ class PolymarketClient:
         asset_type = AssetType.CONDITIONAL if token_id else AssetType.COLLATERAL
         params = BalanceAllowanceParams(asset_type=asset_type, token_id=token_id)
         try:
-            res = self._client.get_balance_allowance(params)
-            if res and res.get("balance") is not None:
-                try:
-                    bal = float(res.get("balance", 0))
-                    if bal == 0:
-                        updated = self._client.update_balance_allowance(params)
-                        if updated and updated.get("balance") is not None:
-                            return updated
-                except Exception:
-                    pass
-                return res
+            return self._client.get_balance_allowance(params) or {}
         except Exception as e:
-            logger.warning("get_balance_allowance failed, trying update_balance_allowance", error=str(e))
-            try:
-                return self._client.update_balance_allowance(params) or {}
-            except Exception:
-                pass
-        return {}
+            logger.warning("get_balance_allowance failed", error=str(e))
+            return {}
 
     def get_clob_market_info(self, condition_id: str) -> Any:
         return self._client.get_clob_market_info(condition_id)

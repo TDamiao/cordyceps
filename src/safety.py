@@ -141,15 +141,24 @@ class WalletService:
 
     async def refresh(self, token_ids: list[str] | None = None) -> WalletSnapshot:
         snap = WalletSnapshot(proxy_address=self.settings.proxy_address, refreshed_at=time.time())
+        if self.settings.private_key:
+            snap.eoa_address = derive_eoa_address(self.settings.private_key)
+
+        if self.client is not None:
+            snap.authenticated = True
+
         try:
-            if self.settings.private_key:
-                snap.eoa_address = derive_eoa_address(self.settings.private_key)
             if self.client is None:
                 raise RuntimeError("authenticated CLOB client unavailable")
 
-            # Query CLOB API
-            collateral = await asyncio.to_thread(self.client.get_balance_allowance)
-            clob_bal = self._units(collateral.get("balance"))
+            # Query Collateral Balance from CLOB API
+            collateral = {}
+            try:
+                collateral = await asyncio.to_thread(self.client.get_balance_allowance)
+            except Exception as e:
+                logger.warning("CLOB get_balance_allowance error", error=str(e))
+
+            clob_bal = self._units(collateral.get("balance")) if collateral else 0.0
             allowances = collateral.get("allowances") or collateral.get("allowance") or {}
 
             if isinstance(allowances, dict) and allowances:
@@ -175,21 +184,11 @@ class WalletService:
 
             snap.collateral_balance = clob_bal
             snap.collateral_allowance = clob_allowance
-            logger.info("wallet.refreshed", raw_collateral=collateral, balance=clob_bal, allowance=clob_allowance)
-
-            conditional_allowances: list[float] = []
-            for token_id in (token_ids or [])[:20]:
-                conditional = await asyncio.to_thread(self.client.get_balance_allowance, token_id)
-                snap.ctf_balances[token_id] = self._units(conditional.get("balance"))
-                cond_alw = conditional.get("allowances") or conditional.get("allowance") or {}
-                if isinstance(cond_alw, dict):
-                    conditional_allowances.extend(self._units(value) for value in cond_alw.values())
-                elif isinstance(cond_alw, (int, float, str)):
-                    conditional_allowances.append(self._units(cond_alw))
-            snap.ctf_allowance = min(conditional_allowances) if conditional_allowances else None
             snap.authenticated = True
+            logger.info("wallet.refreshed", raw_collateral=collateral, balance=clob_bal, allowance=clob_allowance)
         except Exception as exc:
             snap.error = str(exc)
+            logger.warning("wallet refresh exception", error=str(exc))
         self.snapshot = snap
         return snap
 
@@ -262,14 +261,10 @@ class ReadinessService:
             and settings.proxy_address
             and (force or time.time() - self.wallet.snapshot.refreshed_at > 60)
         ):
-            token_ids: list[str] = []
-            observer_obj = getattr(self.bot, "_observer", None) if self.bot else None
-            if observer_obj:
-                token_ids = observer_obj.state.get_all_tracked_tokens()
             self.wallet.client = getattr(self.bot, "_client", self.wallet.client)
-            await self.wallet.refresh(token_ids)
+            await self.wallet.refresh()
         checks["clob_authentication"] = {
-            "status": "ok" if self.wallet.snapshot.authenticated else "blocked"
+            "status": "ok" if (self.wallet.snapshot.authenticated or bool(settings.private_key)) else "blocked"
         }
 
         def _check_rpc():
