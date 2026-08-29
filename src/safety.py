@@ -98,7 +98,43 @@ class WalletService:
 
     @staticmethod
     def _units(value: Any) -> float:
-        return float(value or 0) / 1_000_000
+        try:
+            return float(value or 0) / 1_000_000
+        except Exception:
+            return 0.0
+
+    async def _fetch_onchain_balance(self, address: str) -> tuple[float, float]:
+        def _check():
+            try:
+                rpc_url = self.settings.polygon_rpc_url or "https://polygon-bor-rpc.publicnode.com"
+                w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 5}))
+                target = Web3.to_checksum_address(address)
+                abi = [
+                    {"constant": True, "inputs": [{"name": "_owner", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}], "type": "function"},
+                    {"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "remaining", "type": "uint256"}], "type": "function"},
+                ]
+                tokens = [
+                    "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",  # USDC.e
+                    "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",  # USDC Native
+                ]
+                spenders = [
+                    "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E",  # CTF Exchange V1
+                    "0xCD504f46C7E229bB958BDE1d5a71147779fE963E",  # Neg Risk Adapter
+                ]
+                total_bal = 0.0
+                max_allowance = 0.0
+                for token_addr in tokens:
+                    c = w3.eth.contract(address=Web3.to_checksum_address(token_addr), abi=abi)
+                    bal = c.functions.balanceOf(target).call() / 1e6
+                    total_bal += bal
+                    for spender in spenders:
+                        alw = c.functions.allowance(target, Web3.to_checksum_address(spender)).call() / 1e6
+                        if alw > max_allowance:
+                            max_allowance = alw
+                return total_bal, max_allowance
+            except Exception:
+                return 0.0, 0.0
+        return await asyncio.to_thread(_check)
 
     async def refresh(self, token_ids: list[str] | None = None) -> WalletSnapshot:
         snap = WalletSnapshot(proxy_address=self.settings.proxy_address, refreshed_at=time.time())
@@ -107,19 +143,45 @@ class WalletService:
                 snap.eoa_address = derive_eoa_address(self.settings.private_key)
             if self.client is None:
                 raise RuntimeError("authenticated CLOB client unavailable")
+
+            # Query CLOB API
             collateral = await asyncio.to_thread(self.client.get_balance_allowance)
-            snap.collateral_balance = self._units(collateral.get("balance"))
-            allowances = collateral.get("allowances") or {}
-            snap.collateral_allowance = min(
-                (self._units(value) for value in allowances.values()), default=0.0
-            )
+            clob_bal = self._units(collateral.get("balance"))
+            allowances = collateral.get("allowances") or collateral.get("allowance") or {}
+
+            if isinstance(allowances, dict) and allowances:
+                clob_allowance = min((self._units(v) for v in allowances.values()), default=0.0)
+            elif isinstance(allowances, (int, float, str)):
+                clob_allowance = self._units(allowances)
+            elif isinstance(allowances, list) and allowances:
+                clob_allowance = min((self._units(v) for v in allowances), default=0.0)
+            else:
+                clob_allowance = 0.0
+
+            # Fallback to on-chain Polygon check if CLOB returns 0
+            target_address = self.settings.proxy_address or snap.eoa_address
+            if clob_bal == 0.0 and target_address:
+                try:
+                    onchain_bal, onchain_allowance = await self._fetch_onchain_balance(target_address)
+                    if onchain_bal > 0:
+                        clob_bal = onchain_bal
+                    if onchain_allowance > 0 and clob_allowance == 0.0:
+                        clob_allowance = onchain_allowance
+                except Exception:
+                    pass
+
+            snap.collateral_balance = clob_bal
+            snap.collateral_allowance = clob_allowance
+
             conditional_allowances: list[float] = []
             for token_id in (token_ids or [])[:20]:
                 conditional = await asyncio.to_thread(self.client.get_balance_allowance, token_id)
                 snap.ctf_balances[token_id] = self._units(conditional.get("balance"))
-                conditional_allowances.extend(
-                    self._units(value) for value in (conditional.get("allowances") or {}).values()
-                )
+                cond_alw = conditional.get("allowances") or conditional.get("allowance") or {}
+                if isinstance(cond_alw, dict):
+                    conditional_allowances.extend(self._units(value) for value in cond_alw.values())
+                elif isinstance(cond_alw, (int, float, str)):
+                    conditional_allowances.append(self._units(cond_alw))
             snap.ctf_allowance = min(conditional_allowances) if conditional_allowances else None
             snap.authenticated = True
         except Exception as exc:

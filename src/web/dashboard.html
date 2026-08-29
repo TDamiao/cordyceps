@@ -2,39 +2,168 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Cordyceps Operations</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cordyceps — Painel de Arbitragem Polymarket</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
 <body>
-  <header>
-    <div><span class="eyebrow">POLYMARKET ARBITRAGE SYSTEM</span><h1>CORDYCEPS</h1></div>
-    <div class="header-actions"><span id="mode" class="pill">PAPER</span><span id="health" class="pill neutral">STARTING</span><form method="post" action="/logout"><button class="ghost">Logout</button></form></div>
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="logo-icon">🌿</div>
+      <div>
+        <span class="eyebrow">SISTEMA DE ARBITRAGEM POLYMARKET</span>
+        <h1>CORDYCEPS</h1>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="mode" class="badge badge-mode">SIMULAÇÃO</span>
+      <span id="health" class="badge badge-health">INICIANDO</span>
+      <form method="post" action="/logout">
+        <button type="submit" class="btn btn-secondary btn-sm">Sair</button>
+      </form>
+    </div>
   </header>
 
-  <main>
-    <div id="attention" class="attention hidden">EXPOSURE REQUIRES ATTENTION</div>
-    <section class="grid hero-grid">
-      <article class="card"><h2>System</h2><div id="systemMetrics" class="metrics"></div></article>
-      <article class="card"><h2>Strategy</h2><div id="strategyMetrics" class="metrics"></div></article>
-      <article class="card"><h2>Wallet</h2><div id="walletMetrics" class="metrics"></div><button id="refreshWallet">Refresh wallet</button></article>
-      <article class="card danger-card"><h2>Controls</h2><div id="controlState" class="metrics"></div><div class="button-row"><button id="kill" class="danger">Kill switch</button><button id="resume" class="ghost">Resume</button><button id="arm">Arm live test</button></div></article>
+  <main class="app-container">
+    <div id="attention" class="banner-attention hidden">
+      ⚠️ <strong>ATENÇÃO NECESSÁRIA:</strong> Existem posições ou pernas incompletas que requerem reconciliação manual.
+    </div>
+
+    <!-- Grid de Métricas Principais -->
+    <section class="grid grid-4">
+      <!-- Sistema -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-tag">STATUS</span>
+          <h2>Sistema &amp; Rede</h2>
+        </div>
+        <div id="systemMetrics" class="metric-list"></div>
+      </div>
+
+      <!-- Estratégia -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-tag">SCANNER</span>
+          <h2>Estratégia &amp; Margem</h2>
+        </div>
+        <div id="strategyMetrics" class="metric-list"></div>
+      </div>
+
+      <!-- Carteira -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-tag">FINANCEIRO</span>
+          <h2>Carteira &amp; Saldo</h2>
+        </div>
+        <div id="walletMetrics" class="metric-list"></div>
+        <div class="card-footer">
+          <button id="refreshWallet" class="btn btn-secondary btn-block">🔄 Atualizar Carteira</button>
+        </div>
+      </div>
+
+      <!-- Controles -->
+      <div class="card card-controls">
+        <div class="card-header">
+          <span class="card-tag">CONTROLE</span>
+          <h2>Execução &amp; Risco</h2>
+        </div>
+        <div id="controlState" class="metric-list"></div>
+        <div class="card-footer">
+          <div class="btn-group">
+            <button id="arm" class="btn btn-primary">⚡ Armar Live</button>
+            <button id="kill" class="btn btn-danger">🛑 Kill Switch</button>
+            <button id="resume" class="btn btn-secondary">▶️ Retomar</button>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section class="card readiness"><div class="section-title"><div><span class="eyebrow">PRE-FLIGHT</span><h2>Live Readiness</h2></div><button id="runReadiness">Run checks</button></div><div id="readinessSummary"></div><div id="readinessChecks" class="checks"></div></section>
+    <!-- Verificação de Pré-Requisitos (Live Readiness) -->
+    <section class="card section-spacing">
+      <div class="section-header">
+        <div>
+          <span class="card-tag">PRÉ-VOO</span>
+          <h2>Verificação de Pré-Requisitos (Live Readiness)</h2>
+          <p class="section-desc">Testes de segurança obrigatórios para autorizar execuções em modo real.</p>
+        </div>
+        <button id="runReadiness" class="btn btn-secondary">🔍 Executar Verificação</button>
+      </div>
+      <div id="readinessSummary" class="readiness-summary"></div>
+      <div id="readinessChecks" class="checks-grid"></div>
+    </section>
 
-    <section class="card"><div class="section-title"><div><span class="eyebrow">LIVE CONFIGURATION</span><h2>Risk &amp; Strategy</h2></div><button id="saveConfig">Save parameters</button></div><p class="muted">Profile: Live Test - $10 Wallet. Changes are validated and applied without container restart.</p><div id="configForm" class="config-grid"></div><div id="configMessage" class="message"></div></section>
+    <!-- Configuração de Parâmetros Operacionais -->
+    <section class="card section-spacing">
+      <div class="section-header">
+        <div>
+          <span class="card-tag">CONFIGURAÇÃO</span>
+          <h2>Parâmetros de Risco &amp; Estratégia</h2>
+          <p class="section-desc">Ajuste limites de risco, slippage e tamanhos de ordem em tempo real sem reiniciar o container.</p>
+        </div>
+        <button id="saveConfig" class="btn btn-primary">💾 Salvar Parâmetros</button>
+      </div>
+      <div id="configForm" class="config-grid"></div>
+      <div id="configMessage" class="status-msg"></div>
+    </section>
 
-    <section class="grid tables-grid">
-      <article class="card"><h2>Recent Opportunities</h2><div id="opportunities" class="table-wrap"></div></article>
-      <article class="card"><h2>Recent Trades</h2><div id="trades" class="table-wrap"></div></article>
-      <article class="card"><h2>Closest Opportunities</h2><div id="closest" class="table-wrap"></div></article>
-      <article class="card"><h2>Risk Events</h2><div id="riskEvents" class="table-wrap"></div></article>
-      <article class="card wide"><h2>System Events</h2><div id="systemEvents" class="table-wrap"></div></article>
+    <!-- Tabelas de Dados e Auditoria -->
+    <section class="grid grid-2 section-spacing">
+      <div class="card">
+        <div class="card-header">
+          <h2>Oportunidades Recentes</h2>
+        </div>
+        <div id="opportunities" class="table-container"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Histórico de Operações (Trades)</h2>
+        </div>
+        <div id="trades" class="table-container"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Oportunidades Mais Próximas (Radar)</h2>
+        </div>
+        <div id="closest" class="table-container"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Eventos de Risco &amp; Alertas</h2>
+        </div>
+        <div id="riskEvents" class="table-container"></div>
+      </div>
+
+      <div class="card grid-span-full">
+        <div class="card-header">
+          <h2>Eventos do Sistema (Auditoria)</h2>
+        </div>
+        <div id="systemEvents" class="table-container"></div>
+      </div>
     </section>
   </main>
 
-  <dialog id="armDialog"><form method="dialog"><h2>Arm live trading</h2><p>This does not change mode. Readiness must pass and live remains disarmed after every restart.</p><label>Type <code>CORDYCEPS LIVE</code><input id="armConfirmation" autocomplete="off"></label><div class="button-row"><button value="cancel" class="ghost">Cancel</button><button id="confirmArm" value="default" class="danger">Arm now</button></div></form></dialog>
+  <!-- Modal de Confirmação para Armar Live -->
+  <dialog id="armDialog" class="modal">
+    <form method="dialog" class="modal-form">
+      <h3>⚠️ Armar Modo Live Trading</h3>
+      <p>O bot começará a enviar <strong>ordens reais de dinheiro</strong> na Polymarket assim que detectar margens lucrativas.</p>
+      <div class="form-group">
+        <label for="armConfirmation">Para confirmar, digite exatamente <code>CORDYCEPS LIVE</code>:</label>
+        <input id="armConfirmation" type="text" autocomplete="off" placeholder="CORDYCEPS LIVE" class="input-text">
+      </div>
+      <div class="modal-actions">
+        <button type="button" value="cancel" class="btn btn-secondary" onclick="document.getElementById('armDialog').close()">Cancelar</button>
+        <button id="confirmArm" type="submit" class="btn btn-danger">Autorizar e Armar</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toast" class="toast hidden"></div>
   <script src="/assets/dashboard.js" defer></script>
 </body>
