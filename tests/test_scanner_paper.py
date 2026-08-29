@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from decimal import Decimal
 
 import pytest
 
-from src.scanner import Scanner
-from src.paper_engine import PaperEngine, PaperFill
 from src.engine.detector import ArbitrageOpportunity, SignalType
-from src.client.models import OrderBook, OrderBookLevel
-
+from src.paper_engine import PaperEngine, PaperFill
+from src.scanner import Scanner
 
 # ---------------------------------------------------------------------------
 # Scanner tests

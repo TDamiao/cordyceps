@@ -4,9 +4,9 @@ Integration tests for authentication and client setup.
 Run with: pytest tests/test_auth.py -v
 """
 
-import pytest
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
+
+import pytest
 
 
 class TestAuthentication:
@@ -25,14 +25,14 @@ class TestAuthentication:
 
     def test_derive_eoa_address_invalid_key(self):
         """Test that invalid private key raises error."""
-        from src.client.auth import derive_eoa_address, AuthenticationError
+        from src.client.auth import AuthenticationError, derive_eoa_address
 
         with pytest.raises(AuthenticationError):
             derive_eoa_address("invalid_key")
 
     def test_derive_eoa_address_wrong_length(self):
         """Test that wrong length key raises error."""
-        from src.client.auth import derive_eoa_address, AuthenticationError
+        from src.client.auth import AuthenticationError, derive_eoa_address
 
         with pytest.raises(AuthenticationError):
             derive_eoa_address("0x1234")

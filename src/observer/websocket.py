@@ -6,10 +6,10 @@ Connects to the market channel for order book updates.
 
 import asyncio
 import json
-import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -59,10 +59,10 @@ class WebSocketClient:
 
     def __init__(
         self,
-        config: Optional[WebSocketConfig] = None,
-        on_message: Optional[Callable[[dict], None]] = None,
-        on_connect: Optional[Callable[[], None]] = None,
-        on_disconnect: Optional[Callable[[], None]] = None,
+        config: WebSocketConfig | None = None,
+        on_message: Callable[[dict], None] | None = None,
+        on_connect: Callable[[], None] | None = None,
+        on_disconnect: Callable[[], None] | None = None,
     ):
         """
         Initialize WebSocket client.
@@ -78,7 +78,7 @@ class WebSocketClient:
         self.on_connect = on_connect
         self.on_disconnect = on_disconnect
 
-        self._ws: Optional[websockets.WebSocketClientProtocol] = None
+        self._ws: websockets.WebSocketClientProtocol | None = None
         self._state = ConnectionState.DISCONNECTED
         self._subscriptions: list[Subscription] = []
         self._reconnect_attempts = 0
@@ -322,8 +322,8 @@ class MarketWebSocket:
 
     def __init__(
         self,
-        on_book_update: Optional[Callable[[str, dict], None]] = None,
-        on_trade: Optional[Callable[[str, dict], None]] = None,
+        on_book_update: Callable[[str, dict], None] | None = None,
+        on_trade: Callable[[str, dict], None] | None = None,
     ):
         """
         Initialize market WebSocket.

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import pytest
 
 
@@ -47,7 +44,7 @@ class TestDatabase:
         monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'cordyceps.db'}")
 
         from src.config import get_settings
-        from src.database import init_db, get_engine
+        from src.database import get_engine, init_db
 
         get_settings.cache_clear()
         settings = get_settings()

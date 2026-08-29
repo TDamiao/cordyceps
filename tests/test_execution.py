@@ -4,11 +4,11 @@ Tests for the execution module (rate limiting and order execution).
 Run with: pytest tests/test_execution.py -v
 """
 
-import pytest
 import asyncio
 from decimal import Decimal
-from unittest.mock import MagicMock, AsyncMock, patch
-import time
+from unittest.mock import MagicMock
+
+import pytest
 
 
 class TestTokenBucket:
@@ -52,7 +52,7 @@ class TestRateLimiter:
 
     def test_limiter_initialization(self):
         """Test rate limiter initialization."""
-        from src.execution.rate_limiter import RateLimiter, RateLimitConfig
+        from src.execution.rate_limiter import RateLimitConfig, RateLimiter
 
         config = RateLimitConfig(requests_per_second=5.0)
         limiter = RateLimiter(config=config)
@@ -114,8 +114,8 @@ class TestExecutionResult:
 
     def test_execution_result_all_filled(self):
         """Test all_filled property."""
-        from src.execution.executor import ExecutionResult, OrderResult, OrderStatus
         from src.engine.detector import ArbitrageOpportunity, SignalType
+        from src.execution.executor import ExecutionResult, OrderResult, OrderStatus
 
         opp = ArbitrageOpportunity(
             market_id="m1",
@@ -146,8 +146,8 @@ class TestExecutionResult:
 
     def test_execution_result_partial_fill(self):
         """Test partial fill detection."""
-        from src.execution.executor import ExecutionResult, OrderResult, OrderStatus
         from src.engine.detector import ArbitrageOpportunity, SignalType
+        from src.execution.executor import ExecutionResult, OrderResult, OrderStatus
 
         opp = ArbitrageOpportunity(
             market_id="m1",
@@ -182,7 +182,6 @@ class TestOrderExecutor:
     def test_executor_initialization(self):
         """Test executor initialization."""
         from src.execution.executor import OrderExecutor
-        from unittest.mock import MagicMock
 
         mock_client = MagicMock()
         executor = OrderExecutor(client=mock_client)
@@ -193,7 +192,6 @@ class TestOrderExecutor:
     def test_stats_tracking(self):
         """Test stats are tracked correctly."""
         from src.execution.executor import OrderExecutor
-        from unittest.mock import MagicMock
 
         mock_client = MagicMock()
         executor = OrderExecutor(client=mock_client)

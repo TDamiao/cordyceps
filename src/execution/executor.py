@@ -5,19 +5,18 @@ Handles order submission, tracking, and error handling.
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
-import time
 
-from src.client import PolymarketClient, OrderSide, OrderType
+from src.client import OrderSide, PolymarketClient
+from src.config import get_settings
+from src.contracts.ctf import CTFContract, MergeResult
 from src.engine.detector import ArbitrageOpportunity, SignalType
 from src.execution.rate_limiter import RateLimiter
-from src.config import get_settings
-from src.utils.logging import get_logger
-from src.contracts.ctf import CTFContract, MergeResult
 from src.risk.manager import RiskManager
+from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -38,11 +37,11 @@ class OrderResult:
     """Result of a single order submission."""
 
     token_id: str
-    order_id: Optional[str] = None
+    order_id: str | None = None
     status: OrderStatus = OrderStatus.PENDING
     filled_size: Decimal = Decimal("0")
     price: Decimal = Decimal("0")
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
 
 
@@ -55,9 +54,9 @@ class ExecutionResult:
     success: bool = False
     total_filled: Decimal = Decimal("0")
     realized_profit: Decimal = Decimal("0")
-    error: Optional[str] = None
+    error: str | None = None
     execution_time_ms: int = 0
-    merge_result: Optional[MergeResult] = None
+    merge_result: MergeResult | None = None
 
     @property
     def all_filled(self) -> bool:
@@ -85,9 +84,9 @@ class OrderExecutor:
     def __init__(
         self,
         client: PolymarketClient,
-        rate_limiter: Optional[RateLimiter] = None,
-        ctf_contract: Optional[CTFContract] = None,
-        risk_manager: Optional[RiskManager] = None,
+        rate_limiter: RateLimiter | None = None,
+        ctf_contract: CTFContract | None = None,
+        risk_manager: RiskManager | None = None,
     ):
         """
         Initialize order executor.
@@ -117,7 +116,7 @@ class OrderExecutor:
 
         Submits orders for all legs of the trade. For BUY_SET, buys all
         outcomes. For SELL_SET, sells all outcomes.
-        
+
         If atomic merge is enabled and we bought all legs, it triggers
         mergePositions() immediately.
 
@@ -169,7 +168,7 @@ class OrderExecutor:
                         size=opportunity.max_size,
                     )
                 )
-            
+
             # Execute all orders in parallel
             orders = await asyncio.gather(*order_tasks)
             result.orders.extend(orders)
@@ -191,19 +190,19 @@ class OrderExecutor:
 
             if result.all_filled:
                 result.success = True
-                
+
                 # Default realized profit based purely on price diff
                 # (Verified by atomic merge later if enabled)
                 result.realized_profit = opportunity.net_profit * (
                     result.total_filled / opportunity.max_size
                 )
-                
+
                 logger.info(
                     "Orders filled",
                     market_id=opportunity.market_id,
                     filled=str(result.total_filled),
                 )
-                
+
                 # Trigger atomic merge if enabled and we BOUGHT positions
                 if (
                     self._settings.use_atomic_merge
@@ -211,7 +210,7 @@ class OrderExecutor:
                     and order_side == OrderSide.BUY
                 ):
                     await self._handle_atomic_merge(opportunity.market_id, result)
-                    
+
             elif result.any_filled:
                 logger.warning(
                     "Partial fill - position opened",
@@ -246,30 +245,30 @@ class OrderExecutor:
     ) -> None:
         """
         Handle atomic merge logic.
-        
+
         Args:
             condition_id: Market condition ID
             result: Execution result to update
         """
         logger.info("Attempting atomic merge", condition_id=condition_id)
-        
+
         # Determine amount to merge (use filled size)
-        # Convert Decimal to int (USDC has 6 decimals, but wait... 
+        # Convert Decimal to int (USDC has 6 decimals, but wait...
         # shares are 1:1 with USDC collateral, so 1 share = 10^6 units if USDC is 6 decimals?
-        # Actually in CTF, amounts are uint256. 
+        # Actually in CTF, amounts are uint256.
         # If we bought 10.0 shares, that's 10 * 10^6 raw units usually.
         # But let's assume `filled_size` is already in human-readable units/shares from the CLOB client.
-        # We need to convert to raw integer for the contract. 
+        # We need to convert to raw integer for the contract.
         # Since Polymarket uses USDC (6 decimals), 1 share = 10^6 base units.
-        
+
         # Prepare retry loop
         max_retries = 3
-        
+
         try:
             # Assuming filled_size is e.g. 10.5 (shares/USDC)
             # CTF expects raw integer.
             merge_amount_raw = int(result.total_filled * Decimal("1000000"))
-            
+
             for attempt in range(1, max_retries + 1):
                 # Calculate gas price override (boost) for retries
                 gas_price_override = None
@@ -287,14 +286,14 @@ class OrderExecutor:
                         )
                     except Exception as e:
                         logger.warning("Failed to estimate gas for boost", error=str(e))
-                
+
                 merge_res = await self._ctf.merge_positions(
                     condition_id=condition_id,
                     amount=merge_amount_raw,
                     max_gas_price_gwei=self._settings.max_gas_price_gwei,
                     gas_price_wei_override=gas_price_override,
                 )
-                
+
                 if merge_res.success:
                     result.merge_result = merge_res
                     logger.info(
@@ -307,16 +306,16 @@ class OrderExecutor:
 
                 # If failed
                 logger.warning(
-                    "Atomic merge failed", 
-                    attempt=attempt, 
+                    "Atomic merge failed",
+                    attempt=attempt,
                     error=merge_res.error
                 )
-                
+
                 if attempt < max_retries:
                     wait_time = 1.5 * attempt
                     logger.info(f"Retrying merge in {wait_time}s...")
                     await asyncio.sleep(wait_time)
-            
+
             # If all retries failed
             logger.error(
                 "CRITICAL: Atomic merge failed after all retries",
@@ -325,7 +324,7 @@ class OrderExecutor:
             )
             # Don't fail the whole execution result, as we still hold the positions
             # We can retry merge later or hold to settlement
-                
+
         except Exception as e:
             logger.error("Error in atomic merge process", error=str(e))
 
@@ -453,7 +452,7 @@ class OrderExecutor:
 async def execute_arbitrage(
     client: PolymarketClient,
     opportunity: ArbitrageOpportunity,
-    ctf_contract: Optional[CTFContract] = None,
+    ctf_contract: CTFContract | None = None,
 ) -> ExecutionResult:
     """
     Convenience function to execute a single arbitrage opportunity.

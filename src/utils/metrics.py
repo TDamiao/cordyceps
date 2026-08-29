@@ -6,12 +6,10 @@ Tracks trade history, performance metrics, and provides analytics.
 
 import json
 import time
-from dataclasses import dataclass, field, asdict
-from decimal import Decimal
 from collections import deque
+from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 from pathlib import Path
-from typing import Optional, Any
-from datetime import datetime, timezone
 
 from src.utils.logging import get_logger
 
@@ -94,7 +92,7 @@ class MetricsTracker:
     def __init__(
         self,
         max_history: int = 1000,
-        persist_path: Optional[Path] = None,
+        persist_path: Path | None = None,
     ):
         """
         Initialize metrics tracker.
@@ -237,7 +235,7 @@ class MetricsTracker:
             return
 
         try:
-            with open(self._persist_path, "r") as f:
+            with open(self._persist_path) as f:
                 data = json.load(f)
             for item in data:
                 trade = TradeRecord.from_dict(item)
@@ -265,7 +263,7 @@ class HealthStatus:
     status: str  # "healthy", "degraded", "unhealthy"
     uptime_seconds: float
     websocket_connected: bool
-    last_trade_time: Optional[int]
+    last_trade_time: int | None
     trades_last_hour: int
     errors_last_hour: int
     metrics: PerformanceMetrics

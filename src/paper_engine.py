@@ -13,8 +13,6 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Optional
-
 from decimal import Decimal
 
 from sqlmodel import Session
@@ -49,7 +47,7 @@ class PaperEngine:
     """Simulated trade executor used when trading_mode is paper."""
 
 
-    def __init__(self, simulated_latency_ms: Optional[int] = None) -> None:
+    def __init__(self, simulated_latency_ms: int | None = None) -> None:
         settings = get_settings()
         self._latency_ms = (
             simulated_latency_ms

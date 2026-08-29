@@ -4,9 +4,7 @@ Tests for the utils/metrics module.
 Run with: pytest tests/test_metrics.py -v
 """
 
-import pytest
 from decimal import Decimal
-import time
 
 
 class TestTradeRecord:
@@ -251,7 +249,7 @@ class TestHealthMonitor:
 
     def test_health_monitor_initialization(self):
         """Test HealthMonitor initialization."""
-        from src.utils.metrics import MetricsTracker, HealthMonitor
+        from src.utils.metrics import HealthMonitor, MetricsTracker
 
         tracker = MetricsTracker()
         monitor = HealthMonitor(tracker)
@@ -261,7 +259,7 @@ class TestHealthMonitor:
 
     def test_websocket_status(self):
         """Test WebSocket status affects health."""
-        from src.utils.metrics import MetricsTracker, HealthMonitor
+        from src.utils.metrics import HealthMonitor, MetricsTracker
 
         tracker = MetricsTracker()
         monitor = HealthMonitor(tracker)
@@ -276,7 +274,7 @@ class TestHealthMonitor:
 
     def test_error_recording(self):
         """Test error recording affects health."""
-        from src.utils.metrics import MetricsTracker, HealthMonitor
+        from src.utils.metrics import HealthMonitor, MetricsTracker
 
         tracker = MetricsTracker()
         monitor = HealthMonitor(tracker, error_threshold=2)
@@ -293,8 +291,9 @@ class TestHealthMonitor:
 
     def test_health_json(self):
         """Test health JSON output."""
-        from src.utils.metrics import MetricsTracker, HealthMonitor
         import json
+
+        from src.utils.metrics import HealthMonitor, MetricsTracker
 
         tracker = MetricsTracker()
         monitor = HealthMonitor(tracker)

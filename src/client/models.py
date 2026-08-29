@@ -6,20 +6,19 @@ Pydantic models for type-safe data handling.
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class OrderSide(str, Enum):
+class OrderSide(StrEnum):
     """Order side (buy or sell)."""
 
     BUY = "BUY"
     SELL = "SELL"
 
 
-class OrderType(str, Enum):
+class OrderType(StrEnum):
     """Order execution type."""
 
     GTC = "GTC"  # Good Till Cancelled
@@ -27,7 +26,7 @@ class OrderType(str, Enum):
     GTD = "GTD"  # Good Till Date
 
 
-class MarketType(str, Enum):
+class MarketType(StrEnum):
     """Market structure type."""
 
     BINARY = "binary"          # Standard Yes/No market
@@ -57,27 +56,27 @@ class OrderBook:
     token_id: str
     bids: list[OrderBookLevel] = field(default_factory=list)
     asks: list[OrderBookLevel] = field(default_factory=list)
-    timestamp: Optional[int] = None
+    timestamp: int | None = None
 
     @property
-    def best_bid(self) -> Optional[OrderBookLevel]:
+    def best_bid(self) -> OrderBookLevel | None:
         """Get the best (highest) bid."""
         return self.bids[0] if self.bids else None
 
     @property
-    def best_ask(self) -> Optional[OrderBookLevel]:
+    def best_ask(self) -> OrderBookLevel | None:
         """Get the best (lowest) ask."""
         return self.asks[0] if self.asks else None
 
     @property
-    def mid_price(self) -> Optional[Decimal]:
+    def mid_price(self) -> Decimal | None:
         """Calculate mid price between best bid and ask."""
         if self.best_bid and self.best_ask:
             return (self.best_bid.price + self.best_ask.price) / 2
         return None
 
     @property
-    def spread(self) -> Optional[Decimal]:
+    def spread(self) -> Decimal | None:
         """Calculate spread between best ask and bid."""
         if self.best_bid and self.best_ask:
             return self.best_ask.price - self.best_bid.price
@@ -90,8 +89,8 @@ class MarketOutcome:
 
     token_id: str
     outcome: str  # "Yes" or "No" for binary, or outcome name for multi
-    price: Optional[Decimal] = None
-    order_book: Optional[OrderBook] = None
+    price: Decimal | None = None
+    order_book: OrderBook | None = None
 
 
 @dataclass
@@ -102,7 +101,7 @@ class Market:
     question: str
     outcomes: list[MarketOutcome]
     market_type: MarketType = MarketType.BINARY
-    end_date: Optional[str] = None
+    end_date: str | None = None
     active: bool = True
 
     @property
@@ -139,8 +138,8 @@ class TradeResult:
     success: bool
     order_ids: list[str] = field(default_factory=list)
     filled_sizes: list[Decimal] = field(default_factory=list)
-    error: Optional[str] = None
-    timestamp: Optional[int] = None
+    error: str | None = None
+    timestamp: int | None = None
 
 
 @dataclass
@@ -150,8 +149,8 @@ class Position:
     token_id: str
     size: Decimal
     avg_price: Decimal
-    market_id: Optional[str] = None
-    outcome: Optional[str] = None
+    market_id: str | None = None
+    outcome: str | None = None
 
     @property
     def value(self) -> Decimal:

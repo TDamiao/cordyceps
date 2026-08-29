@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Optional
 
 from src.markets import MarketFetcher
 from src.observer import MarketObserver
@@ -25,8 +24,8 @@ class Scanner:
 
     def __init__(
         self,
-        fetcher: Optional[MarketFetcher] = None,
-        observer: Optional[MarketObserver] = None,
+        fetcher: MarketFetcher | None = None,
+        observer: MarketObserver | None = None,
         scan_interval_seconds: float = 60.0,
         market_limit: int = 50,
     ) -> None:
@@ -35,7 +34,7 @@ class Scanner:
         self._interval = scan_interval_seconds
         self._market_limit = market_limit
         self._tracked: set[str] = set()
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
     def attach_observer(self, observer: MarketObserver) -> None:
@@ -129,7 +128,7 @@ class Scanner:
                 sleep_for = max(0.0, self._interval - elapsed)
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=sleep_for)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
         self._task = asyncio.create_task(_loop(), name="cordyceps-scanner")

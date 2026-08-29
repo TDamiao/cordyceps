@@ -7,19 +7,17 @@ Orchestrates all components: observer, engine, executor, and settlement.
 
 import asyncio
 import signal
-import sys
 from pathlib import Path
-from typing import Optional
 
 from src.client import PolymarketClient, authenticate
 from src.config import get_settings
-from src.engine import ArbitrageEngine, ArbitrageOpportunity
+from src.engine import ArbitrageEngine
 from src.execution import OrderExecutor, RateLimiter
 from src.markets import MarketFetcher
 from src.observer import MarketObserver
-from src.settlement import SettlementAgent, PositionMonitor
+from src.settlement import PositionMonitor, SettlementAgent
 from src.utils.logging import get_logger, setup_logging
-from src.utils.metrics import MetricsTracker, HealthMonitor
+from src.utils.metrics import HealthMonitor, MetricsTracker
 
 logger = get_logger(__name__)
 
@@ -41,12 +39,12 @@ class ArbitrageBot:
         setup_logging()
 
         # Initialize components
-        self._client: Optional[PolymarketClient] = None
-        self._observer: Optional[MarketObserver] = None
+        self._client: PolymarketClient | None = None
+        self._observer: MarketObserver | None = None
         self._engine = ArbitrageEngine()
-        self._executor: Optional[OrderExecutor] = None
-        self._settlement: Optional[SettlementAgent] = None
-        self._position_monitor: Optional[PositionMonitor] = None
+        self._executor: OrderExecutor | None = None
+        self._settlement: SettlementAgent | None = None
+        self._position_monitor: PositionMonitor | None = None
 
         # Metrics and monitoring
         self._metrics = MetricsTracker(
@@ -84,21 +82,22 @@ class ArbitrageBot:
 
             # Initialize executor with rate limiting
             rate_limiter = RateLimiter()
-            
+
             # Initialize Risk Manager
             from src.risk.manager import RiskManager
             risk_manager = RiskManager()
-            
+
             # Initialize CTF contract for atomic merge (if enabled)
             ctf_contract = None
             if self._settings.use_atomic_merge:
                 try:
-                    from src.contracts import CTFContract, CTF_ADDRESS
                     from web3 import Web3
-                    
+
+                    from src.contracts import CTF_ADDRESS, CTFContract
+
                     # Initialize Web3
                     w3 = Web3(Web3.HTTPProvider(self._settings.polygon_rpc_url))
-                    
+
                     ctf_contract = CTFContract(
                         web3=w3,
                         private_key=self._settings.private_key,
@@ -163,13 +162,13 @@ class ArbitrageBot:
 
             # Start observer first before subscribing
             observer_task = asyncio.create_task(self._run_observer())
-            
+
             # Give WebSocket time to connect
             await asyncio.sleep(1)
 
             # Collect all tokens for batch subscription
             all_token_ids = []
-            
+
             for market in markets[:50]:  # Limit to top 50 markets
                 # Register market in state manager
                 self._observer.state.register_market(market.condition_id, market.token_ids)
@@ -182,7 +181,7 @@ class ArbitrageBot:
                         market.condition_id,
                         market.token_ids,
                     )
-                
+
                 logger.info("Market registered", condition_id=market.condition_id, tokens=len(market.token_ids))
 
             # Send ONE subscription for all tokens

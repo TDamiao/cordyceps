@@ -6,8 +6,7 @@ Implements token bucket algorithm to respect API rate limits.
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from src.utils.logging import get_logger
 
@@ -108,7 +107,7 @@ class RateLimiter:
     Provides separate buckets for general requests and order submissions.
     """
 
-    def __init__(self, config: Optional[RateLimitConfig] = None):
+    def __init__(self, config: RateLimitConfig | None = None):
         """
         Initialize rate limiter.
 

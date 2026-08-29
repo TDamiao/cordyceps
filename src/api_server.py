@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 
 from src.config import get_settings
 from src.main import ArbitrageBot
@@ -33,10 +33,10 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Module-level state (shared across lifespan and route handlers)
 # ---------------------------------------------------------------------------
-_bot: Optional[ArbitrageBot] = None
-_scanner: Optional[Scanner] = None
-_paper_engine: Optional[PaperEngine] = None
-_startup_ts: Optional[float] = None
+_bot: ArbitrageBot | None = None
+_scanner: Scanner | None = None
+_paper_engine: PaperEngine | None = None
+_startup_ts: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 @app.get("/health")
-async def health_endpoint() -> Dict[str, Any]:
+async def health_endpoint() -> dict[str, Any]:
     """
     Comprehensive health payload.
 
@@ -144,7 +144,7 @@ async def health_endpoint() -> Dict[str, Any]:
     settings = get_settings()
 
     # Bot status (may not be ready yet during early startup)
-    bot_health: Dict[str, Any] = {}
+    bot_health: dict[str, Any] = {}
     bot_running = False
     active_markets = 0
     if _bot is not None:
@@ -157,7 +157,7 @@ async def health_endpoint() -> Dict[str, Any]:
             pass
 
     # Paper engine stats
-    paper_stats: Dict[str, Any] = {}
+    paper_stats: dict[str, Any] = {}
     if _paper_engine is not None:
         paper_stats = {
             "trade_count": _paper_engine.trade_count,
@@ -192,7 +192,7 @@ async def health_endpoint() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @app.get("/status")
-async def status_endpoint() -> Dict[str, Any]:
+async def status_endpoint() -> dict[str, Any]:
     """Lightweight status for liveness probes."""
     if _bot is not None:
         return _bot.get_status()
@@ -203,7 +203,7 @@ async def status_endpoint() -> Dict[str, Any]:
 # CLI entrypoint
 # ---------------------------------------------------------------------------
 
-def run_server(port: Optional[int] = None) -> None:
+def run_server(port: int | None = None) -> None:
     """Start uvicorn programmatically."""
     import uvicorn
 

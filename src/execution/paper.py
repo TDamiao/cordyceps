@@ -14,9 +14,8 @@ import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
-from src.engine.detector import ArbitrageOpportunity, SignalType
+from src.engine.detector import ArbitrageOpportunity
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -33,11 +32,11 @@ class OrderStatus(Enum):
 @dataclass
 class OrderResult:
     token_id: str
-    order_id: Optional[str] = None
+    order_id: str | None = None
     status: OrderStatus = OrderStatus.PENDING
     filled_size: Decimal = Decimal("0")
     price: Decimal = Decimal("0")
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
 
 
@@ -48,8 +47,8 @@ class SimulationResult:
     total_filled: Decimal = Decimal("0")
     realized_profit: Decimal = Decimal("0")
     execution_time_ms: int = 0
-    error: Optional[str] = None
-    leg_risk: Optional[str] = None
+    error: str | None = None
+    leg_risk: str | None = None
 
     @property
     def all_filled(self) -> bool:
@@ -80,7 +79,7 @@ class PaperSimulator:
         base_fill_probability: float = 1.0,
         leg_failure_probability: float = 0.0,
         fill_fraction_jitter: float = 0.0,
-        log_path: Optional[str] = None,
+        log_path: str | None = None,
     ) -> None:
         self._latency_ms = latency_ms
         self._fill_prob = base_fill_probability
@@ -95,7 +94,6 @@ class PaperSimulator:
 
         orders: list[OrderResult] = []
         any_failed = False
-        any_fill = False
 
         for i, (token_id, price) in enumerate(
             zip(opportunity.token_ids, opportunity.prices)
@@ -129,7 +127,6 @@ class PaperSimulator:
                     order.status = OrderStatus.FILLED
                 else:
                     order.status = OrderStatus.PARTIALLY_FILLED
-                any_fill = True
             else:
                 order.status = OrderStatus.FAILED
                 order.error = "no fill"

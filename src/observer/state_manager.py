@@ -6,9 +6,9 @@ Maintains real-time synchronized order books for multiple markets.
 
 import asyncio
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Callable, Optional
 
 from src.client.models import OrderBook, OrderBookLevel
 from src.utils.logging import get_logger
@@ -41,8 +41,8 @@ class StateManager:
 
     def __init__(
         self,
-        on_book_update: Optional[Callable[[str, OrderBook], None]] = None,
-        on_arb_opportunity: Optional[Callable[[str, dict[str, OrderBook]], None]] = None,
+        on_book_update: Callable[[str, OrderBook], None] | None = None,
+        on_arb_opportunity: Callable[[str, dict[str, OrderBook]], None] | None = None,
     ):
         """
         Initialize state manager.
@@ -114,7 +114,7 @@ class StateManager:
 
         logger.info("Market unregistered", condition_id=condition_id)
 
-    def get_order_book(self, token_id: str) -> Optional[OrderBook]:
+    def get_order_book(self, token_id: str) -> OrderBook | None:
         """
         Get order book for a token.
 
@@ -126,7 +126,7 @@ class StateManager:
         """
         return self._order_books.get(token_id)
 
-    def get_market_books(self, condition_id: str) -> Optional[dict[str, OrderBook]]:
+    def get_market_books(self, condition_id: str) -> dict[str, OrderBook] | None:
         """
         Get all order books for a market.
 
@@ -272,8 +272,8 @@ class MarketObserver:
 
     def __init__(
         self,
-        on_book_update: Optional[Callable[[str, OrderBook], None]] = None,
-        on_opportunity: Optional[Callable[[str, dict[str, OrderBook]], None]] = None,
+        on_book_update: Callable[[str, OrderBook], None] | None = None,
+        on_opportunity: Callable[[str, dict[str, OrderBook]], None] | None = None,
     ):
         """
         Initialize market observer.

@@ -7,8 +7,9 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
-from src.risk.manager import RiskManager, RiskState
+
 from src.config import Settings
+from src.risk.manager import RiskManager, RiskState
 
 
 @pytest.fixture
@@ -47,7 +48,7 @@ class TestRiskManager:
         # Record 2 failures (threshold is 3)
         risk_manager.record_failure("Error 1")
         risk_manager.record_failure("Error 2")
-        
+
         # Should still be allowed
         allowed, _ = risk_manager.can_trade()
         assert allowed is True
@@ -55,7 +56,7 @@ class TestRiskManager:
 
         # Record 3rd failure
         risk_manager.record_failure("Error 3")
-        
+
         # Should now be paused
         assert risk_manager._state.is_paused is True
         allowed, reason = risk_manager.can_trade()
@@ -67,9 +68,9 @@ class TestRiskManager:
         # Trigger it
         for i in range(3):
             risk_manager.record_failure(f"Error {i}")
-            
+
         assert risk_manager._state.is_paused is True
-        
+
         # Mock time forward satisfy cooldown (61 seconds)
         future_time = time.time() + 61
         with patch("time.time", return_value=future_time):
@@ -83,10 +84,10 @@ class TestRiskManager:
         # Lose $40 (Limit $50)
         risk_manager._state.daily_pnl = Decimal("-40")
         assert risk_manager.can_trade()[0] is True
-        
+
         # Lose another $15 (Total -$55)
         risk_manager._state.daily_pnl = Decimal("-55")
-        
+
         allowed, reason = risk_manager.can_trade()
         assert allowed is False
         assert "Daily loss limit exceeded" in reason
@@ -96,7 +97,7 @@ class TestRiskManager:
         risk_manager.record_failure("Oops")
         risk_manager.record_failure("Oops 2")
         assert risk_manager._state.consecutive_failures == 2
-        
+
         risk_manager.record_success(Decimal("1.0"))
         assert risk_manager._state.consecutive_failures == 0
         assert risk_manager._state.daily_pnl == Decimal("1.0")
@@ -105,9 +106,9 @@ class TestRiskManager:
         """Test slippage protection logic."""
         # Profitable spread
         assert risk_manager.check_slippage(Decimal("0.4"), Decimal("0.5")) is True
-        
+
         # Break even
         assert risk_manager.check_slippage(Decimal("0.5"), Decimal("0.5")) is False
-        
+
         # Loss
         assert risk_manager.check_slippage(Decimal("0.6"), Decimal("0.5")) is False

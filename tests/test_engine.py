@@ -4,7 +4,6 @@ Tests for the arbitrage engine module.
 Run with: pytest tests/test_engine.py -v
 """
 
-import pytest
 from decimal import Decimal
 
 
@@ -98,7 +97,7 @@ class TestArbitrageEngine:
 
     def test_engine_initialization(self):
         """Test engine initialization."""
-        from src.engine.detector import ArbitrageEngine, ArbitrageConfig
+        from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
         config = ArbitrageConfig(min_profit_threshold=Decimal("0.01"))
         engine = ArbitrageEngine(config=config)
@@ -108,7 +107,7 @@ class TestArbitrageEngine:
 
     def test_detect_buy_set_opportunity(self):
         """Test BUY_SET opportunity detection (sum of asks < 1)."""
-        from src.engine.detector import ArbitrageEngine, ArbitrageConfig, SignalType
+        from src.engine.detector import ArbitrageConfig, ArbitrageEngine, SignalType
 
         config = ArbitrageConfig(
             min_profit_threshold=Decimal("0.001"),  # Very low threshold for test
@@ -131,7 +130,7 @@ class TestArbitrageEngine:
 
     def test_detect_sell_set_opportunity(self):
         """Test SELL_SET opportunity detection (sum of bids > 1)."""
-        from src.engine.detector import ArbitrageEngine, ArbitrageConfig, SignalType
+        from src.engine.detector import ArbitrageConfig, ArbitrageEngine, SignalType
 
         config = ArbitrageConfig(
             min_profit_threshold=Decimal("0.001"),
@@ -154,7 +153,7 @@ class TestArbitrageEngine:
 
     def test_no_opportunity(self):
         """Test no opportunity when prices are fair."""
-        from src.engine.detector import ArbitrageEngine, ArbitrageConfig
+        from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
         config = ArbitrageConfig(min_profit_threshold=Decimal("0.001"))
         engine = ArbitrageEngine(config=config)
@@ -188,7 +187,7 @@ class TestArbitrageEngine:
 
     def test_opportunity_respects_liquidity(self):
         """Test that opportunity size is limited by liquidity."""
-        from src.engine.detector import ArbitrageEngine, ArbitrageConfig
+        from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
         config = ArbitrageConfig(
             min_profit_threshold=Decimal("0.001"),
@@ -210,7 +209,7 @@ class TestArbitrageEngine:
 
     def test_opportunity_respects_max_position(self):
         """Test that opportunity size is limited by max position size."""
-        from src.engine.detector import ArbitrageEngine, ArbitrageConfig
+        from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
         config = ArbitrageConfig(
             min_profit_threshold=Decimal("0.001"),
@@ -231,7 +230,7 @@ class TestArbitrageEngine:
 
     def test_fees_reduce_profit(self):
         """Test that fees are correctly applied."""
-        from src.engine.detector import ArbitrageEngine, ArbitrageConfig
+        from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
         config = ArbitrageConfig(
             min_profit_threshold=Decimal("0.001"),
@@ -252,7 +251,7 @@ class TestArbitrageEngine:
 
     def test_stats_tracking(self):
         """Test stats are tracked correctly."""
-        from src.engine.detector import ArbitrageEngine, ArbitrageConfig
+        from src.engine.detector import ArbitrageConfig, ArbitrageEngine
 
         config = ArbitrageConfig(
             min_profit_threshold=Decimal("0.001"),

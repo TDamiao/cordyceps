@@ -4,7 +4,6 @@ Tests for the depth-aware arbitrage detector and paper simulator.
 Run with: pytest tests/test_depth_aware.py -v
 """
 
-import asyncio
 import json
 import time
 from decimal import Decimal
@@ -12,7 +11,6 @@ from decimal import Decimal
 import pytest
 
 from src.client.models import OrderBook, OrderBookLevel
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -311,7 +309,7 @@ class TestPaperSimulatorLegFailure:
     @pytest.mark.asyncio
     async def test_all_leg_failure_marks_result_failed(self, tmp_path):
         from src.engine.detector import ArbitrageOpportunity, SignalType
-        from src.execution.paper import PaperSimulator, OrderStatus
+        from src.execution.paper import OrderStatus, PaperSimulator
 
         opp = ArbitrageOpportunity(
             market_id="m-fail",
@@ -349,7 +347,7 @@ class TestPaperSimulatorLegFailure:
     @pytest.mark.asyncio
     async def test_partial_fill_reduces_realized_profit(self, tmp_path):
         from src.engine.detector import ArbitrageOpportunity, SignalType
-        from src.execution.paper import PaperSimulator, OrderStatus
+        from src.execution.paper import PaperSimulator
 
         opp = ArbitrageOpportunity(
             market_id="m-partial",

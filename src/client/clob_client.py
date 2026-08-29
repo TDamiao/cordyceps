@@ -5,24 +5,19 @@ Provides a high-level interface for trading operations.
 """
 
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType as ClobOrderType
+from py_clob_client.clob_types import OrderArgs
 
 from src.client.auth import AuthenticatedClient, authenticate
 from src.client.models import (
-    Market,
-    MarketOutcome,
-    MarketType,
     OrderBook,
     OrderBookLevel,
     OrderSide,
     OrderType,
-    Position,
-    TradeResult,
 )
-from src.config import TradingConfig, get_settings
+from src.config import get_settings
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -39,7 +34,7 @@ class PolymarketClient:
     - Logging
     """
 
-    def __init__(self, auth_client: Optional[AuthenticatedClient] = None):
+    def __init__(self, auth_client: AuthenticatedClient | None = None):
         """
         Initialize the Polymarket client.
 
@@ -133,7 +128,7 @@ class PolymarketClient:
             result[token_id] = self.get_order_book(token_id)
         return result
 
-    def get_price(self, token_id: str) -> Optional[Decimal]:
+    def get_price(self, token_id: str) -> Decimal | None:
         """
         Get the current mid price for a token.
 
@@ -161,7 +156,7 @@ class PolymarketClient:
         price: Decimal,
         size: Decimal,
         order_type: OrderType = OrderType.GTC,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Create and submit an order.
 
@@ -227,7 +222,7 @@ class PolymarketClient:
         side: OrderSide,
         price: Decimal,
         size: Decimal,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Create a Fill-or-Kill order (for arbitrage execution).
 

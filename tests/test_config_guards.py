@@ -10,12 +10,12 @@ Covers:
 """
 
 import os
-import pytest
 from decimal import Decimal
 from unittest.mock import patch
 
-from src.config import Settings, get_settings
+import pytest
 
+from src.config import Settings, get_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -221,8 +221,9 @@ class TestEngineRespectsLimits:
 
 class TestRiskManagerCircuitBreaker:
     def test_circuit_breaker_triggers_after_threshold(self):
-        from src.risk.manager import RiskManager, RiskState
         from unittest.mock import MagicMock, patch
+
+        from src.risk.manager import RiskManager, RiskState
 
         mock_settings = MagicMock()
         mock_settings.max_daily_loss = 1000.0

@@ -6,17 +6,17 @@ This module provides wrappers for:
 - USDC collateral token
 """
 
-from src.contracts.ctf import (
-    CTFContract,
-    merge_positions,
-    get_position_id,
-    get_collection_id,
-)
 from src.contracts.constants import (
     CTF_ADDRESS,
-    USDC_ADDRESS,
-    NEG_RISK_CTF_ADDRESS,
     NEG_RISK_ADAPTER_ADDRESS,
+    NEG_RISK_CTF_ADDRESS,
+    USDC_ADDRESS,
+)
+from src.contracts.ctf import (
+    CTFContract,
+    get_collection_id,
+    get_position_id,
+    merge_positions,
 )
 
 __all__ = [

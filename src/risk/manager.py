@@ -5,10 +5,9 @@ Handles circuit breakers, daily loss limits, and slippage protection.
 """
 
 import time
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional
 
 from src.config import get_settings
 from src.utils.logging import get_logger
@@ -25,13 +24,13 @@ class RiskState:
     is_paused: bool = False
     pause_until: float = 0
     total_trades_today: int = 0
-    last_reset_date: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    last_reset_date: str = field(default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%d"))
 
 
 class RiskManager:
     """
     Manages trading risk and safety checks.
-    
+
     Features:
     - Circuit Breaker: Pauses trading after N consecutive failures.
     - Daily Loss Limit: Stops trading if P&L drops below limit.
@@ -42,7 +41,7 @@ class RiskManager:
         """Initialize risk manager."""
         self._settings = get_settings()
         self._state = RiskState()
-        
+
         logger.info(
             "RiskManager initialized",
             max_daily_loss=self._settings.max_daily_loss,
@@ -53,7 +52,7 @@ class RiskManager:
     def can_trade(self) -> tuple[bool, str]:
         """
         Check if trading is allowed primarily based on circuit breaker/loss limits.
-        
+
         Returns:
             (allowed, reason)
         """
@@ -76,34 +75,34 @@ class RiskManager:
     def record_success(self, pnl: Decimal = Decimal("0")):
         """
         Record a successful trade execution.
-        
+
         Args:
             pnl: Realized Profit/Loss from the trade
         """
         self._check_daily_reset()
-        
+
         self._state.consecutive_failures = 0
         self._state.daily_pnl += pnl
         self._state.total_trades_today += 1
-        
+
         logger.info(
-            "Expected trade PnL recorded", 
-            trade_pnl=str(pnl), 
+            "Expected trade PnL recorded",
+            trade_pnl=str(pnl),
             daily_pnl=str(self._state.daily_pnl)
         )
 
     def record_failure(self, error_reason: str):
         """
         Record a failed trade execution (order rejected, merge failed, etc).
-        
+
         Args:
             error_reason: Description of the error
         """
         self._check_daily_reset()
-        
+
         self._state.consecutive_failures += 1
         self._state.last_failure_time = time.time()
-        
+
         logger.warning(
             "Trade failure recorded",
             consecutive_failures=self._state.consecutive_failures,
@@ -117,18 +116,18 @@ class RiskManager:
     def check_slippage(self, yes_price: Decimal, no_price: Decimal) -> bool:
         """
         Check if current prices still offer profitable spread.
-        
+
         Args:
             yes_price: Best ask for YES
             no_price: Best ask for NO
-            
+
         Returns:
             True if trade is safe (profitable or within tolerance), False otherwise
         """
         # We want to buy cheaply. sum(prices) < 1.0 is profit.
         # If sum > 1.0, we lose money.
         total_cost = yes_price + no_price
-        
+
         # Hard limit: Don't buy if we are guaranteed to lose money (sum > 1.0)
         # unless user has some weird strategy, but for arb, >1.0 is bad.
         if total_cost >= Decimal("1.0"):
@@ -140,7 +139,7 @@ class RiskManager:
                 threshold="1.0"
             )
             return False
-            
+
         return True
 
     def _trigger_circuit_breaker(self):
@@ -148,7 +147,7 @@ class RiskManager:
         self._state.is_paused = True
         cooldown_seconds = self._settings.circuit_breaker_cooldown_minutes * 60
         self._state.pause_until = time.time() + cooldown_seconds
-        
+
         logger.error(
             "CIRCUIT BREAKER TRIGGERED",
             failures=self._state.consecutive_failures,
@@ -164,16 +163,16 @@ class RiskManager:
 
     def _check_daily_reset(self):
         """Reset daily stats if date has changed (UTC)."""
-        current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        current_date = datetime.now(UTC).strftime("%Y-%m-%d")
         if current_date != self._state.last_reset_date:
             logger.info(
-                "Resetting daily risk stats", 
-                old_date=self._state.last_reset_date, 
+                "Resetting daily risk stats",
+                old_date=self._state.last_reset_date,
                 new_date=current_date,
                 final_previous_pnl=str(self._state.daily_pnl)
             )
             self._state.last_reset_date = current_date
             self._state.daily_pnl = Decimal("0")
             self._state.total_trades_today = 0
-            # We do NOT reset consecutive failures or active circuit breaker on day change 
+            # We do NOT reset consecutive failures or active circuit breaker on day change
             # (safety first), but could be argued either way. keeping strict for now.

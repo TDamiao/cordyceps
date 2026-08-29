@@ -5,11 +5,10 @@ Fetches market metadata from Gamma API and CLOB, builds mappings,
 and caches results for efficient access.
 """
 
-import asyncio
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 
@@ -25,8 +24,8 @@ class Token:
 
     token_id: str
     outcome: str  # "Yes", "No", or custom outcome name
-    price: Optional[Decimal] = None
-    winner: Optional[bool] = None
+    price: Decimal | None = None
+    winner: bool | None = None
 
 
 @dataclass
@@ -38,7 +37,7 @@ class MarketInfo:
     question: str
     slug: str
     tokens: list[Token]
-    end_date: Optional[str] = None
+    end_date: str | None = None
     active: bool = True
     closed: bool = False
     volume: Decimal = Decimal("0")
@@ -75,11 +74,11 @@ class MarketCache:
         """Check if cache is stale."""
         return time.time() - self.last_update > self.ttl_seconds
 
-    def get_market(self, condition_id: str) -> Optional[MarketInfo]:
+    def get_market(self, condition_id: str) -> MarketInfo | None:
         """Get market by condition ID."""
         return self.markets.get(condition_id)
 
-    def get_market_by_token(self, token_id: str) -> Optional[MarketInfo]:
+    def get_market_by_token(self, token_id: str) -> MarketInfo | None:
         """Get market by token ID."""
         condition_id = self.token_to_market.get(token_id)
         if condition_id:
@@ -121,7 +120,7 @@ class MarketFetcher:
         """
         self.gamma_host = gamma_host
         self._cache = MarketCache(ttl_seconds=cache_ttl)
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
     @property
     def cache(self) -> MarketCache:
@@ -210,7 +209,7 @@ class MarketFetcher:
             logger.error("Failed to fetch markets", error=str(e))
             return []
 
-    async def fetch_market_by_id(self, condition_id: str) -> Optional[MarketInfo]:
+    async def fetch_market_by_id(self, condition_id: str) -> MarketInfo | None:
         """
         Fetch a single market by condition ID.
 
@@ -276,7 +275,7 @@ class MarketFetcher:
             logger.error("Failed to fetch markets by slug", slug=slug, error=str(e))
             return []
 
-    def _parse_market(self, data: dict[str, Any]) -> Optional[MarketInfo]:
+    def _parse_market(self, data: dict[str, Any]) -> MarketInfo | None:
         """
         Parse market data from API response.
 
@@ -315,7 +314,7 @@ class MarketFetcher:
             if outcome_prices:
                 try:
                     prices = [Decimal(p.strip()) for p in outcome_prices.split(",")]
-                except:
+                except Exception:
                     prices = []
 
             for i, token_id in enumerate(clob_token_ids):
@@ -354,11 +353,11 @@ class MarketFetcher:
             logger.warning("Failed to parse market", error=str(e))
             return None
 
-    def get_cached_market(self, condition_id: str) -> Optional[MarketInfo]:
+    def get_cached_market(self, condition_id: str) -> MarketInfo | None:
         """Get market from cache."""
         return self._cache.get_market(condition_id)
 
-    def get_cached_market_by_token(self, token_id: str) -> Optional[MarketInfo]:
+    def get_cached_market_by_token(self, token_id: str) -> MarketInfo | None:
         """Get market from cache by token ID."""
         return self._cache.get_market_by_token(token_id)
 

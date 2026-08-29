@@ -5,15 +5,13 @@ Merges complete sets of outcome tokens back to USDC to unlock capital.
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
-import time
 
-from web3 import Web3
-from web3.contract import Contract
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
+from web3 import Web3
 
 from src.config import Contracts, get_settings
 from src.utils.logging import get_logger
@@ -111,9 +109,9 @@ class MergeResult:
 
     condition_id: str
     amount: Decimal
-    tx_hash: Optional[str] = None
+    tx_hash: str | None = None
     success: bool = False
-    error: Optional[str] = None
+    error: str | None = None
     gas_used: int = 0
     timestamp: int = field(default_factory=lambda: int(time.time()))
 
@@ -129,7 +127,7 @@ class SettlementAgent:
     def __init__(
         self,
         private_key: str,
-        rpc_url: Optional[str] = None,
+        rpc_url: str | None = None,
         dry_run: bool = True,
     ):
         """
@@ -204,7 +202,7 @@ class SettlementAgent:
         self,
         condition_id: str,
         token_ids: list[str],
-    ) -> Optional[CompleteSet]:
+    ) -> CompleteSet | None:
         """
         Check if we have a complete set that can be merged.
 

@@ -9,27 +9,25 @@ Provides:
 from __future__ import annotations
 
 import time
-from typing import Optional, List
 
-from sqlalchemy import Column, JSON, desc
+from sqlalchemy import JSON, Column, desc
 from sqlmodel import Field, Session, SQLModel, create_engine, select
-
 
 # ---------------------------------------------------------------------------
 # Engine / Session helpers
 # ---------------------------------------------------------------------------
 
-def _get_db_url(settings: Optional[object] = None) -> str:
+def _get_db_url(settings: object | None = None) -> str:
     """Resolve database URL from settings, falling back to SQLite file."""
     return getattr(settings, "database_url", "sqlite:///./cordyceps.db")
 
 
-def get_engine(settings: Optional[object] = None):
+def get_engine(settings: object | None = None):
     """Create a SQLAlchemy engine bound to the resolved DB URL."""
     return create_engine(_get_db_url(settings), echo=False, future=True)
 
 
-def get_session(settings: Optional[object] = None, expire_on_commit: bool = False) -> Session:
+def get_session(settings: object | None = None, expire_on_commit: bool = False) -> Session:
     """Return a new SQLModel Session bound to the configured engine."""
     return Session(get_engine(settings), expire_on_commit=expire_on_commit)
 
@@ -48,11 +46,11 @@ class Trade(SQLModel, table=True):
 
     __tablename__ = "trades"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     trade_id: str = Field(index=True, description="Unique trade identifier")
     market_id: str = Field(index=True, description="Market condition ID")
     signal_type: str = Field(default="BUY_SET", description="BUY_SET or SELL_SET")
-    token_ids: List[str] = Field(default_factory=list, sa_column=Column(JSON))
+    token_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     side: str = Field(default="BUY", description="Order side")
     size: float = Field(default=0.0, ge=0, description="Trade size in USDC")
     price: float = Field(default=0.0, ge=0, description="Limit price per token")
@@ -71,11 +69,11 @@ class Opportunity(SQLModel, table=True):
 
     __tablename__ = "opportunities"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     market_id: str = Field(index=True, description="Market condition ID")
     signal_type: str = Field(description="BUY_SET or SELL_SET")
-    token_ids: List[str] = Field(default_factory=list, sa_column=Column(JSON))
-    prices: List[float] = Field(default_factory=list, sa_column=Column(JSON))
+    token_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    prices: list[float] = Field(default_factory=list, sa_column=Column(JSON))
     net_edge: float = Field(description="Σ ask - Σ bid (edge before fees)")
     net_profit: float = Field(description="Expected net profit in USDC")
     max_size: float = Field(description="Maximum trade size before limits")
@@ -88,7 +86,7 @@ class Position(SQLModel, table=True):
 
     __tablename__ = "positions"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     token_id: str = Field(index=True, description="Token identifier")
     market_id: str = Field(index=True, description="Market condition ID")
     side: str = Field(description="BUY or SELL")
@@ -103,7 +101,7 @@ class Position(SQLModel, table=True):
 # Initialization and simple helpers
 # ---------------------------------------------------------------------------
 
-def init_db(settings: Optional[object] = None, drop_existing: bool = False) -> None:
+def init_db(settings: object | None = None, drop_existing: bool = False) -> None:
     """Create all tables defined by the models.
 
     Args:
@@ -116,7 +114,7 @@ def init_db(settings: Optional[object] = None, drop_existing: bool = False) -> N
     SQLModel.metadata.create_all(engine)
 
 
-def create_session_db(settings: Optional[object] = None) -> Session:
+def create_session_db(settings: object | None = None) -> Session:
     """Convenience: ensure DB is initialised and return a session."""
     init_db(settings)
     return get_session(settings)
@@ -142,7 +140,7 @@ def upsert_trade(session: Session, trade: Trade) -> Trade:
     return trade
 
 
-def list_recent_trades(session: Session, limit: int = 50, after_ts: Optional[int] = None) -> list[Trade]:
+def list_recent_trades(session: Session, limit: int = 50, after_ts: int | None = None) -> list[Trade]:
     """Retrieve recent trades, optionally filtered by a timestamp threshold."""
     stmt = select(Trade).order_by(desc(Trade.timestamp))
     if after_ts is not None:
@@ -171,7 +169,7 @@ def upsert_opportunity(session: Session, opp: Opportunity) -> Opportunity:
     return opp
 
 
-def list_opportunities(session: Session, limit: int = 50, status: Optional[str] = None) -> list[Opportunity]:
+def list_opportunities(session: Session, limit: int = 50, status: str | None = None) -> list[Opportunity]:
     """List stored opportunities, optionally filtered by ``status``."""
     stmt = select(Opportunity).order_by(desc(Opportunity.timestamp))
     if status:

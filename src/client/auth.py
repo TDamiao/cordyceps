@@ -4,9 +4,7 @@ Authentication module for Polymarket CLOB API.
 Handles L1/L2 authentication and API credential management.
 """
 
-import os
 from dataclasses import dataclass
-from typing import Optional
 
 from eth_account import Account
 from py_clob_client.client import ClobClient
@@ -174,8 +172,8 @@ def authenticate_with_explicit_creds(
     api_key: str,
     api_secret: str,
     api_passphrase: str,
-    private_key: Optional[str] = None,
-    proxy_address: Optional[str] = None,
+    private_key: str | None = None,
+    proxy_address: str | None = None,
 ) -> AuthenticatedClient:
     """
     Authenticate using explicit API credentials instead of deriving them.

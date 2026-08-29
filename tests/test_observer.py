@@ -4,9 +4,9 @@ Tests for the observer module (WebSocket and state management).
 Run with: pytest tests/test_observer.py -v
 """
 
-import pytest
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestStateManager:
@@ -98,8 +98,9 @@ class TestStateManager:
     @pytest.mark.asyncio
     async def test_market_is_complete(self):
         """Test market completeness detection."""
-        from src.observer.state_manager import StateManager
         import asyncio
+
+        from src.observer.state_manager import StateManager
 
         opportunity_data = {}
 
@@ -183,8 +184,8 @@ class TestMarketState:
 
     def test_market_state_is_complete(self):
         """Test MarketState completeness check."""
-        from src.observer.state_manager import MarketState
         from src.client.models import OrderBook
+        from src.observer.state_manager import MarketState
 
         state = MarketState(
             condition_id="cond_123",

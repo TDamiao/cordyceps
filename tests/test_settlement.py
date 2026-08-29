@@ -4,9 +4,10 @@ Tests for the settlement module (CTF merge and position monitoring).
 Run with: pytest tests/test_settlement.py -v
 """
 
-import pytest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestPosition:
@@ -143,8 +144,9 @@ class TestPositionMonitor:
 
     def test_monitor_add_market(self):
         """Test adding markets to monitor."""
-        from src.settlement.agent import PositionMonitor
         from unittest.mock import MagicMock
+
+        from src.settlement.agent import PositionMonitor
 
         mock_agent = MagicMock()
         monitor = PositionMonitor(settlement_agent=mock_agent)
@@ -154,8 +156,9 @@ class TestPositionMonitor:
 
     def test_monitor_remove_market(self):
         """Test removing markets from monitor."""
-        from src.settlement.agent import PositionMonitor
         from unittest.mock import MagicMock
+
+        from src.settlement.agent import PositionMonitor
 
         mock_agent = MagicMock()
         monitor = PositionMonitor(settlement_agent=mock_agent)
@@ -166,8 +169,9 @@ class TestPositionMonitor:
 
     def test_monitor_stop(self):
         """Test stopping monitor."""
-        from src.settlement.agent import PositionMonitor
         from unittest.mock import MagicMock
+
+        from src.settlement.agent import PositionMonitor
 
         mock_agent = MagicMock()
         monitor = PositionMonitor(settlement_agent=mock_agent)

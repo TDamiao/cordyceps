@@ -4,9 +4,7 @@ Tests for the markets module (fetching and caching).
 Run with: pytest tests/test_markets.py -v
 """
 
-import pytest
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestToken:
@@ -200,8 +198,9 @@ class TestMarketCache:
 
     def test_cache_is_stale(self):
         """Test cache staleness check."""
-        from src.markets.fetcher import MarketCache
         import time
+
+        from src.markets.fetcher import MarketCache
 
         cache = MarketCache(ttl_seconds=0.1)  # 100ms TTL
         cache.last_update = time.time()

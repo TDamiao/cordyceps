@@ -8,11 +8,10 @@ Implements Unity Constraint arbitrage detection with depth-aware VWAP:
 Includes stale-book rejection, slippage guards, and leg-risk buffer.
 """
 
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
-import time
 
 from src.client.models import OrderBook, OrderBookLevel
 from src.config import TradingConfig, get_settings
@@ -83,7 +82,7 @@ class ArbitrageEngine:
     identifies the executable quantity that remains profitable.
     """
 
-    def __init__(self, config: Optional[ArbitrageConfig] = None):
+    def __init__(self, config: ArbitrageConfig | None = None):
         settings = get_settings()
         self.config = config or ArbitrageConfig(
             min_profit_threshold=Decimal(str(settings.min_profit_threshold)),
@@ -103,7 +102,7 @@ class ArbitrageEngine:
         self,
         market_id: str,
         order_books: dict[str, OrderBook],
-    ) -> Optional[ArbitrageOpportunity]:
+    ) -> ArbitrageOpportunity | None:
         if len(order_books) != 2:
             logger.debug("Skipping non-binary market", market_id=market_id)
             return None
@@ -179,7 +178,7 @@ class ArbitrageEngine:
         self,
         market_id: str,
         order_books: dict[str, OrderBook],
-    ) -> Optional[ArbitrageOpportunity]:
+    ) -> ArbitrageOpportunity | None:
         token_ids = list(order_books.keys())
         legs = [order_books[tid] for tid in token_ids]
 
@@ -192,7 +191,7 @@ class ArbitrageEngine:
             leg_levels.append(lvls)
 
         # Initial VWAP from first level only
-        first_vwap_sum = sum(
+        sum(
             leg_levels[i][0].price for i in range(len(token_ids))
         )
 
@@ -203,7 +202,7 @@ class ArbitrageEngine:
         profitable = True
         filled_any = False
 
-        for lvl_idx in range(min(len(l) for l in leg_levels)):
+        for lvl_idx in range(min(len(leg) for leg in leg_levels)):
             avail = min(leg_levels[li][lvl_idx].size for li in range(len(token_ids)))
             remaining_budget = self.config.max_position_size - total_executable
             fill = min(avail, remaining_budget)
@@ -281,7 +280,7 @@ class ArbitrageEngine:
         self,
         market_id: str,
         order_books: dict[str, OrderBook],
-    ) -> Optional[ArbitrageOpportunity]:
+    ) -> ArbitrageOpportunity | None:
         token_ids = list(order_books.keys())
         legs = [order_books[tid] for tid in token_ids]
 
@@ -293,7 +292,7 @@ class ArbitrageEngine:
             leg_levels.append(lvls)
 
         # Initial VWAP from first level only
-        first_vwap_sum = sum(
+        sum(
             leg_levels[i][0].price for i in range(len(token_ids))
         )
 
@@ -303,7 +302,7 @@ class ArbitrageEngine:
         profitable = True
         filled_any = False
 
-        for lvl_idx in range(min(len(l) for l in leg_levels)):
+        for lvl_idx in range(min(len(leg) for leg in leg_levels)):
             avail = min(leg_levels[li][lvl_idx].size for li in range(len(token_ids)))
             remaining_budget = self.config.max_position_size - total_executable
             fill = min(avail, remaining_budget)
@@ -397,7 +396,7 @@ class ArbitrageEngine:
 # Helper functions
 # ------------------------------------------------------------------
 
-def calculate_price_sum(order_books: dict[str, OrderBook], side: str) -> Optional[Decimal]:
+def calculate_price_sum(order_books: dict[str, OrderBook], side: str) -> Decimal | None:
     total = Decimal("0")
     for book in order_books.values():
         if side == "ask":
