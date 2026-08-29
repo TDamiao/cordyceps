@@ -4,7 +4,6 @@
 services:
   gluetun:
     image: qmcgaw/gluetun
-    container_name: gluetun
     cap_add:
       - NET_ADMIN
     devices:
@@ -27,7 +26,7 @@ services:
       dockerfile: Dockerfile
       target: production
     restart: unless-stopped
-    network_mode: "container:gluetun" # Roteia todo o tráfego de rede do bot pela VPN
+    network_mode: "service:gluetun" # Roteia todo o tráfego de rede do bot pela VPN
     environment:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       PYTHONUNBUFFERED: "1"
