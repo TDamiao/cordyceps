@@ -121,6 +121,7 @@ class MarketFetcher:
         self.gamma_host = gamma_host
         self._cache = MarketCache(ttl_seconds=cache_ttl)
         self._session: aiohttp.ClientSession | None = None
+        self._session_trust_env = True
 
     @property
     def cache(self) -> MarketCache:
@@ -133,6 +134,7 @@ class MarketFetcher:
             # Dokploy routes egress through HTTP(S)_PROXY. aiohttp ignores
             # those variables unless trust_env is explicitly enabled.
             self._session = aiohttp.ClientSession(trust_env=True)
+            self._session_trust_env = True
         return self._session
 
     async def close(self) -> None:
@@ -213,6 +215,21 @@ class MarketFetcher:
 
         except aiohttp.ClientError as e:
             logger.error("Failed to fetch markets", error=str(e))
+            # Some Dokploy proxy configurations accept curl but close an
+            # aiohttp CONNECT tunnel. Retry once without proxy before
+            # declaring market discovery unavailable.
+            if self._session_trust_env:
+                if self._session and not self._session.closed:
+                    await self._session.close()
+                self._session = aiohttp.ClientSession(trust_env=False)
+                self._session_trust_env = False
+                return await self.fetch_markets(
+                    active_only=active_only,
+                    binary_only=binary_only,
+                    min_volume=min_volume,
+                    min_liquidity=min_liquidity,
+                    limit=limit,
+                )
             return []
 
     async def fetch_market_by_id(self, condition_id: str) -> MarketInfo | None:
