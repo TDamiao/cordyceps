@@ -24,10 +24,10 @@
     <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span><form method="post" action="/logout"><button class="topbar-logout" type="submit">Sair</button></form></div>
 </div></header>
 <div class="container">
-  <h1 class="page-title">Trades Simulados</h1>
+  <h1 class="page-title" id="trades-title">Trades</h1>
   <div class="table-wrap"><table>
     <thead><tr><th>Criado</th><th>Capital</th><th>Lucro Esp.</th><th>Lucro Sim.</th><th>YES Fill</th><th>NO Fill</th><th>Slippage</th><th>Latência</th><th>Status</th></tr></thead>
-    <tbody id="tbl"><tr><td colspan="9"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><h3>Nenhum trade simulado</h3><p>Quando uma oportunidade for executada, o resultado aparecerá aqui.</p></div></td></tr></tbody>
+    <tbody id="tbl"><tr><td colspan="9"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><h3>Nenhum trade registrado</h3><p>Quando uma oportunidade for executada, o resultado aparecerá aqui.</p></div></td></tr></tbody>
   </table></div>
 </div>
 <script>
@@ -40,10 +40,11 @@ async function load() {
     const pill = document.querySelector('#mode-pill');
     pill.textContent = (h.mode||'paper').toUpperCase();
     pill.className = 'pill '+(h.mode==='live'?'pill-live':'pill-paper');
+    document.querySelector('#trades-title').textContent = h.mode === 'live' ? 'Trades LIVE' : 'Trades Simulados';
     const r = await fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({trades:[]}));
     const tbl = document.querySelector('#tbl');
     const t = [...(r.paper_trades || []), ...(r.executions || [])];
-    if (!t.length) { tbl.innerHTML = '<tr><td colspan="9"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><h3>Nenhum trade simulado</h3><p>Quando uma oportunidade for executada, o resultado aparecerá aqui.</p></div></td></tr>'; return; }
+    if (!t.length) { tbl.innerHTML = '<tr><td colspan="9"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><h3>Nenhum trade registrado</h3><p>Quando uma oportunidade for executada, o resultado aparecerá aqui.</p></div></td></tr>'; return; }
     tbl.innerHTML = t.map(x => `<tr>
       <td>${timeAgo(x.timestamp||x.created_at)}</td>
       <td>${fmtUsd(x.capital_used)}</td>
