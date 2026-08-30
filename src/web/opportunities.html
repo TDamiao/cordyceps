@@ -33,6 +33,12 @@
 <script>
 const fmt = (v,d=2) => v != null ? Number(v).toFixed(d) : '—';
 const fmtUsd = v => v != null ? '$'+Number(v).toFixed(2) : '—';
+const field = (x, name, fallback) => x[name] != null ? x[name] : fallback;
+const vwap = (x, index) => (x.vwap_prices || x.prices || [])[index];
+const total = x => field(x, 'combined_price', (x.vwap_prices || x.prices || []).reduce((sum, p) => sum + Number(p || 0), 0) || null);
+const size = x => field(x, 'executable_size', field(x, 'max_size', x.size));
+const profit = x => field(x, 'expected_profit', field(x, 'expected_profit_usd', x.net_profit));
+const market = x => (x.market_question || x.market || x.market_id || '—');
 const timeAgo = ts => { if(!ts) return '—'; const s=Math.floor((Date.now()-new Date(ts).getTime())/1000); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; };
 async function load() {
   try {
@@ -46,14 +52,14 @@ async function load() {
     if (!o.length) { tbl.innerHTML = '<tr><td colspan="10"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><h3>Nenhuma oportunidade detectada</h3><p>O scanner está monitorando order books em tempo real.</p></div></td></tr>'; return; }
     tbl.innerHTML = o.map(x => `<tr>
       <td>${timeAgo(x.timestamp||x.detected_at)}</td>
-      <td>${(x.market_question||x.market||'—').substring(0,40)}</td>
-      <td>${fmt(x.yes_vwap, 4)}</td>
-      <td>${fmt(x.no_vwap, 4)}</td>
-      <td>${fmt(x.combined_price||x.total_cost, 4)}</td>
+      <td>${market(x).substring(0,40)}</td>
+      <td>${fmt(field(x, 'yes_vwap', vwap(x, 0)), 4)}</td>
+      <td>${fmt(field(x, 'no_vwap', vwap(x, 1)), 4)}</td>
+      <td>${fmt(total(x), 4)}</td>
       <td>${fmt((x.net_edge||x.gross_edge||0)*100, 2)}%</td>
-      <td>${fmt(x.executable_size, 1)}</td>
-      <td>${fmtUsd(x.capital_required||x.total_cost)}</td>
-      <td>${fmtUsd(x.expected_profit||x.expected_profit_usd)}</td>
+      <td>${fmt(size(x), 1)}</td>
+      <td>${fmtUsd(field(x, 'capital_required', field(x, 'total_cost', total(x) && size(x) != null ? total(x) * size(x) : null)))}</td>
+      <td>${fmtUsd(profit(x))}</td>
       <td><span class="pill ${x.status==='simulated'?'pill-ok':x.status==='rejected'?'pill-err':'pill-paper'}">${x.status||'—'}</span></td>
     </tr>`).join('');
   } catch(e) { console.error(e); }

@@ -114,6 +114,12 @@
 const $ = s => document.querySelector(s);
 const fmt = (v, d=2) => v != null ? Number(v).toFixed(d) : '—';
 const fmtUsd = v => v != null ? '$' + Number(v).toFixed(2) : '—';
+const field = (x, name, fallback) => x[name] != null ? x[name] : fallback;
+const vwap = (x, index) => (x.vwap_prices || x.prices || [])[index];
+const total = x => field(x, 'combined_price', (x.vwap_prices || x.prices || []).reduce((sum, p) => sum + Number(p || 0), 0) || null);
+const size = x => field(x, 'executable_size', field(x, 'max_size', x.size));
+const profit = x => field(x, 'expected_profit', field(x, 'expected_profit_usd', x.net_profit));
+const market = x => (x.market_question || x.market || x.market_id || '—');
 const shortAddr = v => v ? v.slice(0, 6) + '…' + v.slice(-4) : 'Não configurado';
 const timeAgo = ts => {
   if (!ts) return '—';
@@ -197,14 +203,14 @@ async function load() {
     } else {
       tbody.innerHTML = opps.slice(0, 20).map(o => `<tr>
         <td>${timeAgo(o.timestamp || o.detected_at)}</td>
-        <td>${(o.market_question || o.market || '—').substring(0,40)}</td>
-        <td>${fmt(o.yes_vwap, 4)}</td>
-        <td>${fmt(o.no_vwap, 4)}</td>
-        <td>${fmt(o.combined_price || o.total_cost, 4)}</td>
+        <td>${market(o).substring(0,40)}</td>
+        <td>${fmt(field(o, 'yes_vwap', vwap(o, 0)), 4)}</td>
+        <td>${fmt(field(o, 'no_vwap', vwap(o, 1)), 4)}</td>
+        <td>${fmt(total(o), 4)}</td>
         <td>${fmt((o.net_edge || o.gross_edge || 0) * 100, 2)}%</td>
-        <td>${fmt(o.executable_size, 1)}</td>
-        <td>${fmtUsd(o.capital_required || o.total_cost)}</td>
-        <td>${fmtUsd(o.expected_profit || o.expected_profit_usd)}</td>
+        <td>${fmt(size(o), 1)}</td>
+        <td>${fmtUsd(field(o, 'capital_required', field(o, 'total_cost', total(o) && size(o) != null ? total(o) * size(o) : null)))}</td>
+        <td>${fmtUsd(profit(o))}</td>
         <td><span class="pill ${o.status === 'simulated' ? 'pill-ok' : o.status === 'rejected' ? 'pill-err' : 'pill-paper'}">${o.status || '—'}</span></td>
       </tr>`).join('');
     }
