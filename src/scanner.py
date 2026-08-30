@@ -33,7 +33,11 @@ class Scanner:
         self._observer = observer
         self._interval = scan_interval_seconds
         self._market_limit = market_limit
-        self._tracked: set[str] = set()
+        # The bot may register its initial markets just before the scanner
+        # starts.  Keep this set in sync lazily in ``scan_once`` so the
+        # scanner does not re-subscribe every market one by one.
+        existing_markets = getattr(getattr(observer, "state", None), "markets", {})
+        self._tracked: set[str] = set(existing_markets) if existing_markets else set()
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
@@ -69,20 +73,19 @@ class Scanner:
                 continue
             try:
                 self._observer.state.register_market(market.condition_id, market.token_ids)
-                await self._observer._ws.subscribe(market.token_ids)
                 new_tokens.extend(market.token_ids)
                 self._tracked.add(market.condition_id)
-                logger.info(
-                    "scanner.subscribed",
-                    condition_id=market.condition_id,
-                    tokens=len(market.token_ids),
-                )
             except Exception as exc:  # pragma: no cover - best-effort
                 logger.warning(
                     "scanner.subscribe_failed",
                     condition_id=market.condition_id,
                     error=str(exc),
                 )
+        if new_tokens:
+            # MarketWebSocket deduplicates token IDs and sends one subscription
+            # update, avoiding one websocket frame per market.
+            await self._observer._ws.subscribe(new_tokens)
+            logger.info("scanner.subscribed", markets=len(new_tokens) // 2, tokens=len(new_tokens))
         return new_tokens
 
     async def resync(self) -> None:

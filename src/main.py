@@ -375,15 +375,26 @@ class ArbitrageBot:
                     levels = [
                         book.best_ask if side == "ask" else book.best_bid for book in books.values()
                     ]
+                    prices = [float(level.price) for level in levels if level]
+                    executable_size = min(
+                        (level.size for level in levels if level), default=Decimal("0")
+                    )
+                    # This is an indicative candidate snapshot, not an
+                    # executable result: the engine rejected it after fees,
+                    # liquidity, slippage, or risk checks.
                     session.add(
                         Opportunity(
                             market_id=condition_id,
                             signal_type=signal,
                             token_ids=list(books),
-                            prices=[float(level.price) for level in levels if level],
-                            best_prices=[float(level.price) for level in levels if level],
+                            prices=prices,
+                            best_prices=prices,
+                            vwap_prices=prices,
                             gross_edge=float(edge),
                             net_edge=float(edge),
+                            size=float(executable_size),
+                            max_size=float(executable_size),
+                            net_profit=float(edge * executable_size),
                             decision="rejected",
                             rejection_reason=reason,
                             status="rejected",
