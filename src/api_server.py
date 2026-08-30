@@ -51,6 +51,7 @@ _geoblock: GeoblockService | None = None
 _wallet: WalletService | None = None
 _readiness: ReadinessService | None = None
 _startup_ts: float | None = None
+_auto_arm_task: asyncio.Task[None] | None = None
 
 
 def create_bot() -> ArbitrageBot:
@@ -71,9 +72,40 @@ def create_scanner(observer: Any = None, fetcher: Any = None) -> Scanner:
     )
 
 
+async def _auto_arm_live() -> None:
+    """Arm live execution after startup as soon as every readiness check passes."""
+    runtime = _runtime
+    readiness = _readiness
+    if runtime is None or readiness is None:
+        return
+    if runtime.settings.trading_mode not in {"live_test", "live"}:
+        return
+    if not runtime.settings.live_trading_enabled:
+        return
+
+    while _runtime is runtime:
+        try:
+            result = await readiness.check(force=True)
+            if result["ready"]:
+                runtime.arm()
+                logger.warning("live.auto_armed", mode=runtime.settings.trading_mode)
+                return
+            blocked = [
+                name
+                for name, check in result.get("checks", {}).items()
+                if check.get("status") != "ok"
+            ]
+            logger.warning("live.auto_arm_waiting", blocked=blocked)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("live.auto_arm_failed", error=str(exc))
+        await asyncio.sleep(10)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _admin, _bot, _geoblock, _paper_engine, _readiness, _runtime, _scanner, _startup_ts, _wallet
+    global _admin, _auto_arm_task, _bot, _geoblock, _paper_engine, _readiness, _runtime, _scanner, _startup_ts, _wallet
 
     _startup_ts = time.time()
     reset_runtime()
@@ -99,12 +131,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _geoblock = GeoblockService(_runtime.settings)
     _wallet = WalletService(_runtime.settings, getattr(_bot, "_client", None))
     _readiness = ReadinessService(_runtime, _geoblock, _wallet, _bot)
+    _auto_arm_task = asyncio.create_task(_auto_arm_live(), name="cordyceps-auto-arm-live")
     logger.info(
         "orchestrator.started", port=_runtime.settings.port, mode=_runtime.settings.trading_mode
     )
     try:
         yield
     finally:
+        if _auto_arm_task:
+            _auto_arm_task.cancel()
+            await asyncio.gather(_auto_arm_task, return_exceptions=True)
+            _auto_arm_task = None
         if _runtime:
             _runtime.disarm()
         if _scanner:
