@@ -258,6 +258,7 @@ class TestMarketFetcher:
             "volumeNum": 10000,
             "liquidityNum": 5000,
             "negRisk": False,
+            "feesEnabled": False,
         }
 
         market = fetcher._parse_market(data)
@@ -268,6 +269,7 @@ class TestMarketFetcher:
         assert len(market.tokens) == 2
         assert market.tokens[0].price == Decimal("0.55")
         assert market.volume == Decimal("10000")
+        assert market.fees_enabled is False
 
     def test_parse_market_no_tokens(self):
         """Test parsing market with no tokens returns None."""

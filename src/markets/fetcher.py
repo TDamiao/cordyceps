@@ -46,6 +46,7 @@ class MarketInfo:
     volume: Decimal = Decimal("0")
     liquidity: Decimal = Decimal("0")
     neg_risk: bool = False
+    fees_enabled: bool | None = None
 
     @property
     def token_ids(self) -> list[str]:
@@ -172,6 +173,11 @@ class MarketFetcher:
             "limit": limit,
             "active": "true" if active_only else "false",
             "closed": "false",
+            # Arbitrage requires both legs to have executable depth.  Gamma's
+            # default ordering is not a liquidity ranking, so a small market
+            # limit can otherwise monitor an arbitrary, thin slice.
+            "order": "liquidity_num",
+            "ascending": "false",
         }
 
         try:
@@ -416,6 +422,11 @@ class MarketFetcher:
                 volume=Decimal(str(data.get("volumeNum", 0) or 0)),
                 liquidity=Decimal(str(data.get("liquidityNum", 0) or 0)),
                 neg_risk=data.get("negRisk", False),
+                fees_enabled=(
+                    data.get("feesEnabled")
+                    if isinstance(data.get("feesEnabled"), bool)
+                    else None
+                ),
             )
 
             return market

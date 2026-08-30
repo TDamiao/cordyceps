@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from decimal import Decimal
@@ -43,6 +44,8 @@ class FeeService:
         )
         self._ttl = ttl_seconds
         self._cache: dict[str, tuple[float, FeeParameters]] = {}
+        self._refresh_tasks: dict[str, asyncio.Task[FeeParameters]] = {}
+        self._refresh_semaphore = asyncio.Semaphore(8)
 
     def get(self, condition_id: str) -> FeeParameters:
         cached = self._cache.get(condition_id)
@@ -53,15 +56,20 @@ class FeeService:
     async def refresh(
         self, condition_id: str, session: aiohttp.ClientSession | None = None
     ) -> FeeParameters:
+        cached = self._cache.get(condition_id)
+        if cached and time.monotonic() - cached[0] < self._ttl:
+            return cached[1]
+
         owns_session = session is None
         # Use Dokploy's HTTP(S)_PROXY for the CLOB fee endpoint as well.
         session = session or aiohttp.ClientSession(trust_env=True)
         try:
-            async with session.get(
-                f"{self._url}/clob-markets/{condition_id}", timeout=5
-            ) as response:
-                response.raise_for_status()
-                payload = await response.json()
+            async with self._refresh_semaphore:
+                async with session.get(
+                    f"{self._url}/clob-markets/{condition_id}", timeout=5
+                ) as response:
+                    response.raise_for_status()
+                    payload = await response.json()
             details = payload.get("fd")
             if not isinstance(details, dict) or "r" not in details or "e" not in details:
                 raise ValueError("fee details missing from CLOB market response")
@@ -80,3 +88,37 @@ class FeeService:
         finally:
             if owns_session:
                 await session.close()
+
+    def refresh_in_background(self, condition_id: str) -> None:
+        """Refresh one market without blocking order-book analysis.
+
+        A complete book can produce many callbacks per second.  Deduplicating
+        the task prevents one CLOB HTTP request per callback and lets the
+        detector keep evaluating fresh books with the conservative fallback.
+        """
+        cached = self._cache.get(condition_id)
+        if cached and time.monotonic() - cached[0] < self._ttl:
+            return
+        current = self._refresh_tasks.get(condition_id)
+        if current and not current.done():
+            return
+
+        task = asyncio.create_task(self.refresh(condition_id))
+        self._refresh_tasks[condition_id] = task
+
+        def _finished(done: asyncio.Task[FeeParameters]) -> None:
+            self._refresh_tasks.pop(condition_id, None)
+            try:
+                done.result()
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        task.add_done_callback(_finished)
+
+    async def close(self) -> None:
+        tasks = list(self._refresh_tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._refresh_tasks.clear()

@@ -39,16 +39,26 @@ const total = x => field(x, 'combined_price', (x.vwap_prices || x.prices || []).
 const size = x => field(x, 'executable_size', field(x, 'max_size', x.size));
 const profit = x => field(x, 'expected_profit', field(x, 'expected_profit_usd', x.net_profit));
 const market = x => (x.market_question || x.market || x.market_id || '—');
+const reasonLabels = {rejected_stale:'BOOK ANTIGO',rejected_liquidity:'LIQUIDEZ',rejected_slippage:'SLIPPAGE',rejected_fee:'FEE',rejected_profit:'LUCRO',rejected_edge:'EDGE',rejected_risk:'RISCO',no_edge:'SEM EDGE'};
+const statusText = x => x.status === 'rejected' && x.rejection_reason ? `REJECTED · ${reasonLabels[x.rejection_reason] || x.rejection_reason}` : (x.status || '—');
 const timeAgo = ts => { if(!ts) return '—'; const s=Math.floor((Date.now()-new Date(ts).getTime())/1000); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; };
 async function load() {
   try {
-    const h = await fetch('/health').then(r=>r.json());
+    const [h, s, r] = await Promise.all([
+      fetch('/health').then(r=>r.json()),
+      fetch('/api/status').then(r=>r.json()).catch(()=>null),
+      fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({opportunities:[]}))
+    ]);
     const pill = document.querySelector('#mode-pill');
-    pill.textContent = (h.mode||'paper').toUpperCase();
+    pill.textContent = h.mode === 'live' ? (s?.armed ? 'LIVE ARMADO' : 'LIVE DESARMADO') : (h.mode||'paper').toUpperCase();
     pill.className = 'pill '+(h.mode==='live'?'pill-live':'pill-paper');
-    const r = await fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({opportunities:[]}));
     const tbl = document.querySelector('#tbl');
-    const o = r.opportunities || [];
+    const seen = new Set();
+    const o = (r.opportunities || []).filter(x => {
+      const key = `${x.market_id}:${x.signal_type}:${x.status}`;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
     if (!o.length) { tbl.innerHTML = '<tr><td colspan="10"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><h3>Nenhuma oportunidade detectada</h3><p>O scanner está monitorando order books em tempo real.</p></div></td></tr>'; return; }
     tbl.innerHTML = o.map(x => `<tr>
       <td>${timeAgo(x.timestamp||x.detected_at)}</td>
@@ -60,7 +70,7 @@ async function load() {
       <td>${fmt(size(x), 1)}</td>
       <td>${fmtUsd(field(x, 'capital_required', field(x, 'total_cost', total(x) && size(x) != null ? total(x) * size(x) : null)))}</td>
       <td>${fmtUsd(profit(x))}</td>
-      <td><span class="pill ${x.status==='simulated'?'pill-ok':x.status==='rejected'?'pill-err':'pill-paper'}">${x.status||'—'}</span></td>
+      <td><span class="pill ${x.status==='simulated'?'pill-ok':x.status==='rejected'?'pill-err':'pill-paper'}">${statusText(x)}</span></td>
     </tr>`).join('');
   } catch(e) { console.error(e); }
 }

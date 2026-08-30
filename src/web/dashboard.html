@@ -84,6 +84,18 @@
     <div class="card"><div class="card-label">Maior Edge</div><div class="card-value sm" id="v-edge-max">—</div></div>
     <div class="card"><div class="card-label">Exposição Atual</div><div class="card-value sm" id="v-exposure">—</div></div>
   </div>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Mercados analisados</div><div class="card-value sm" id="v-analyzed">—</div></div>
+    <div class="card"><div class="card-label">Candidatos brutos</div><div class="card-value sm" id="v-raw">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por edge</div><div class="card-value sm" id="v-rejected-edge">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por book antigo</div><div class="card-value sm" id="v-rejected-stale">—</div></div>
+  </div>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Rejeitados por liquidez</div><div class="card-value sm" id="v-rejected-liquidity">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por slippage</div><div class="card-value sm" id="v-rejected-slippage">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por fee</div><div class="card-value sm" id="v-rejected-fee">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por lucro</div><div class="card-value sm" id="v-rejected-profit">—</div></div>
+  </div>
 
   <!-- Recent Opportunities Table -->
   <h2 class="page-title">Oportunidades Recentes</h2>
@@ -140,7 +152,7 @@ async function load() {
     // Mode pill
     const mode = health.mode || 'paper';
     const pill = $('#mode-pill');
-    pill.textContent = mode.toUpperCase();
+    pill.textContent = mode === 'live' ? (status?.armed ? 'LIVE ARMADO' : 'LIVE DESARMADO') : mode.toUpperCase();
     pill.className = 'pill ' + (mode === 'live' ? 'pill-live' : 'pill-paper');
 
     // Status dots
@@ -174,12 +186,18 @@ async function load() {
     $('#v-clob-auth').textContent = wallet.authenticated ? 'Autorizada' : 'Não autorizada';
     $('#v-clob-auth').className = 'card-value compact ' + (wallet.authenticated ? 'value-ok' : 'value-warn');
     const risk = status?.risk || {};
-    $('#control-status').innerHTML = `<span class="status-chip ${risk.is_paused ? 'blocked' : 'ok'}">${risk.is_paused ? 'Circuit breaker BLOQUEADO' : 'Circuit breaker liberado'}</span><span>Falhas consecutivas: ${fmt(risk.consecutive_failures, 0)}</span><span>${status?.armed ? 'Live armado' : 'Live desarmado'}</span><span>${status?.kill_switch ? 'Kill switch ativo' : 'Kill switch desligado'}</span>`;
+    const controlStatus = $('#control-status');
+    if (controlStatus) controlStatus.innerHTML = `<span class="status-chip ${risk.is_paused ? 'blocked' : 'ok'}">${risk.is_paused ? 'Circuit breaker BLOQUEADO' : 'Circuit breaker liberado'}</span><span>Falhas consecutivas: ${fmt(risk.consecutive_failures, 0)}</span><span>${status?.armed ? 'Live armado' : 'Live desarmado'}</span><span>${status?.kill_switch ? 'Kill switch ativo' : 'Kill switch desligado'}</span>`;
 
     // Metrics
-    const opps = hist?.opportunities || [];
+    const seenOpportunities = new Set();
+    const opps = (hist?.opportunities || []).filter(o => {
+      const key = `${o.market_id}:${o.signal_type}:${o.status}`;
+      if (seenOpportunities.has(key)) return false;
+      seenOpportunities.add(key); return true;
+    });
     const trades = hist?.paper_trades || [];
-    const executable = opps.filter(o => o.status === 'executable' || o.status === 'simulated').length;
+    const executable = opps.filter(o => ['detected', 'executable', 'simulated'].includes(o.status)).length;
     const fills = trades.filter(t => t.status === 'filled').length;
     const fillRate = trades.length > 0 ? (fills / trades.length * 100) : 0;
     const legFails = trades.filter(t => t.status === 'leg_failed').length;
@@ -195,6 +213,15 @@ async function load() {
     $('#v-edge-avg').textContent = fmt(avgEdge * 100, 1) + '%';
     $('#v-edge-max').textContent = fmt(maxEdge * 100, 1) + '%';
     $('#v-exposure').textContent = fmtUsd(status?.current_exposure || 0);
+    const strategy = status?.strategy || {};
+    $('#v-analyzed').textContent = fmt(strategy.markets_analyzed, 0);
+    $('#v-raw').textContent = fmt((strategy.buy_opportunities_raw || 0) + (strategy.sell_opportunities_raw || 0), 0);
+    $('#v-rejected-edge').textContent = fmt(strategy.rejected_edge, 0);
+    $('#v-rejected-stale').textContent = fmt(strategy.rejected_stale, 0);
+    $('#v-rejected-liquidity').textContent = fmt(strategy.rejected_liquidity, 0);
+    $('#v-rejected-slippage').textContent = fmt(strategy.rejected_slippage, 0);
+    $('#v-rejected-fee').textContent = fmt(strategy.rejected_fee, 0);
+    $('#v-rejected-profit').textContent = fmt(strategy.rejected_profit, 0);
 
     // Opportunities table
     const tbody = $('#opp-table-body');

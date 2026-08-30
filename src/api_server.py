@@ -537,13 +537,20 @@ async def history(request: Request, limit: int = 20) -> dict[str, Any]:
     _require_admin(request)
     limit = max(1, min(limit, 100))
     with Session(get_engine(_runtime.settings)) as session:
+        opportunity_rows = session.exec(
+            select(Opportunity).order_by(desc(Opportunity.timestamp)).limit(limit)
+        ).all()
+        opportunity_payloads = []
+        market_cache = getattr(getattr(_bot, "_fetcher", None), "cache", None)
+        for row in opportunity_rows:
+            payload = row.model_dump(mode="json")
+            market = market_cache.get_market(row.market_id) if market_cache else None
+            if market:
+                payload["market_question"] = market.question
+                payload["market_slug"] = market.slug
+            opportunity_payloads.append(payload)
         return {
-            "opportunities": [
-                row.model_dump(mode="json")
-                for row in session.exec(
-                    select(Opportunity).order_by(desc(Opportunity.timestamp)).limit(limit)
-                ).all()
-            ],
+            "opportunities": opportunity_payloads,
             "executions": [
                 row.model_dump(mode="json")
                 for row in session.exec(
