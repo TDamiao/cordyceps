@@ -47,12 +47,15 @@ Se os parâmetros não puderem ser obtidos, o engine usa uma curva conservadora 
 
 ```bash
 cp .env.example .env
-# Defina ADMIN_TOKEN e mantenha TRADING_MODE=paper.
+# Defina GITHUB_CLIENT_ID e github_key e mantenha TRADING_MODE=paper.
 docker compose up -d --build
 curl http://localhost:8000/health
 ```
 
-Abra `http://localhost:8000/`, informe `ADMIN_TOKEN` e use o dashboard. `/health` e `/status` são públicos e sanitizados. `/api/*`, controles e configurações exigem sessão HTTP-only ou `Authorization: Bearer <ADMIN_TOKEN>`.
+Abra o dashboard e autentique pelo GitHub. Em produção, cadastre a callback
+`https://cordyceps.tdamiao.com/login`; somente a conta `tdamiao` é aceita. `/health` e
+`/status` são públicos e sanitizados. `/api/*`, controles e configurações exigem sessão
+HTTP-only (ou o `ADMIN_TOKEN` legado via Bearer para automações).
 
 ## Profile “Live Test - $10 Wallet”
 
@@ -80,7 +83,10 @@ US$ 10 é o saldo da wallet, não o tamanho de uma operação. O profile limita 
 | `TRADING_MODE` | `paper` | `paper`, `live_test` ou `live`. |
 | `LIVE_TRADING_ENABLED` | `false` | Gate do servidor para qualquer modo real. |
 | `DRY_RUN` | `true` | Deve ser `false` para o readiness live. |
-| `ADMIN_TOKEN` | vazio | Obrigatório para painel e APIs administrativas. |
+| `ADMIN_TOKEN` | vazio | Opcional; autenticação Bearer legada para automações. |
+| `GITHUB_CLIENT_ID` | vazio | Client ID público do GitHub OAuth App. |
+| `github_key` | vazio | Client secret do GitHub OAuth App; mantenha como secret. |
+| `GITHUB_REDIRECT_URI` | produção | Callback exata: `https://cordyceps.tdamiao.com/login`. |
 | `PRIVATE_KEY` | vazio | Signer EOA; nunca sai do servidor. |
 | `PROXY_ADDRESS` | vazio | Funder/proxy/deposit wallet. |
 | `SIGNATURE_TYPE` | `1` | Tipo da wallet: confirme conforme a conta Polymarket. |

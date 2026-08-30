@@ -32,6 +32,7 @@
     </nav>
     <div class="topbar-right">
       <span id="mode-pill" class="pill pill-paper">PAPER</span>
+      <form method="post" action="/logout"><button class="topbar-logout" type="submit">Sair</button></form>
     </div>
   </div>
 </header>
@@ -49,10 +50,28 @@
   <!-- P&L Cards -->
   <h2 class="page-title">P&amp;L</h2>
   <div class="cards cards-4">
-    <div class="card"><div class="card-label">Capital Virtual</div><div class="card-value" id="v-capital">—</div></div>
+    <div class="card"><div class="card-label">Saldo real da carteira (pUSD)</div><div class="card-value" id="v-capital">—</div><div class="card-sub" id="v-wallet-updated">Aguardando leitura</div></div>
     <div class="card"><div class="card-label">P&amp;L Hoje</div><div class="card-value" id="v-pnl-today">—</div></div>
     <div class="card"><div class="card-label">P&amp;L Acumulado</div><div class="card-value" id="v-pnl-total">—</div></div>
     <div class="card"><div class="card-label">ROI</div><div class="card-value" id="v-roi">—</div></div>
+  </div>
+
+  <!-- Wallet & Readiness -->
+  <div class="section-heading">
+    <div><h2 class="page-title">Carteira &amp; segurança</h2><p class="page-subtitle">Dados reais do funder e testes necessários antes do modo live.</p></div>
+    <div class="section-actions">
+      <button class="action-button secondary" id="refresh-wallet" type="button">Atualizar carteira</button>
+      <button class="action-button" id="run-readiness" type="button">Executar testes</button>
+    </div>
+  </div>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Proxy / Funder</div><div class="card-value compact mono" id="v-proxy">—</div></div>
+    <div class="card"><div class="card-label">Signer / EOA</div><div class="card-value compact mono" id="v-eoa">—</div></div>
+    <div class="card"><div class="card-label">Allowance Exchange</div><div class="card-value compact" id="v-allowance">—</div></div>
+    <div class="card"><div class="card-label">Autenticação CLOB</div><div class="card-value compact" id="v-clob-auth">—</div></div>
+  </div>
+  <div class="readiness-panel" id="readiness-panel">
+    <div class="readiness-placeholder">Clique em “Executar testes” para verificar wallet, saldo, allowances, APIs, banco e travas de segurança.</div>
   </div>
 
   <!-- Metrics Cards -->
@@ -99,6 +118,8 @@
 const $ = s => document.querySelector(s);
 const fmt = (v, d=2) => v != null ? Number(v).toFixed(d) : '—';
 const fmtUsd = v => v != null ? '$' + Number(v).toFixed(2) : '—';
+const shortAddr = v => v ? v.slice(0, 6) + '…' + v.slice(-4) : 'Não configurado';
+const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const timeAgo = ts => {
   if (!ts) return '—';
   const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
@@ -132,11 +153,25 @@ async function load() {
     const paper = health.paper_engine || {};
     const totalProfit = paper.total_profit || 0;
     const tradeCount = paper.trade_count || 0;
-    const capital = 100;
+    const wallet = status?.wallet || {};
+    const capital = wallet.usdc_balance;
     $('#v-capital').textContent = fmtUsd(capital);
+    $('#v-wallet-updated').textContent = wallet.last_refresh
+      ? 'Atualizado ' + new Date(wallet.last_refresh * 1000).toLocaleTimeString('pt-BR')
+      : 'Clique em Atualizar carteira';
     $('#v-pnl-today').textContent = fmtUsd(totalProfit);
     $('#v-pnl-total').textContent = fmtUsd(totalProfit);
-    $('#v-roi').textContent = fmt(totalProfit / capital * 100, 1) + '%';
+    $('#v-roi').textContent = capital > 0 ? fmt(totalProfit / capital * 100, 1) + '%' : '—';
+
+    // Wallet real
+    $('#v-proxy').textContent = shortAddr(wallet.proxy_address);
+    $('#v-proxy').title = wallet.proxy_address || '';
+    $('#v-eoa').textContent = shortAddr(wallet.eoa_address);
+    $('#v-eoa').title = wallet.eoa_address || '';
+    $('#v-allowance').textContent = wallet.exchange_allowance_unlimited
+      ? 'Ilimitada' : fmtUsd(wallet.exchange_allowance);
+    $('#v-clob-auth').textContent = wallet.authenticated ? 'Autorizada' : 'Não autorizada';
+    $('#v-clob-auth').className = 'card-value compact ' + (wallet.authenticated ? 'value-ok' : 'value-warn');
 
     // Metrics
     const opps = hist?.opportunities || [];
@@ -181,7 +216,65 @@ async function load() {
   }
 }
 
-load();
+async function authenticatedFetch(url, options = {}) {
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    location.href = '/login';
+    throw new Error('Sessão expirada');
+  }
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.detail || 'Falha na operação');
+  return payload;
+}
+
+async function refreshWallet() {
+  const button = $('#refresh-wallet');
+  button.disabled = true;
+  button.textContent = 'Atualizando…';
+  try {
+    await authenticatedFetch('/api/wallet/refresh', {method: 'POST'});
+    await load();
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Atualizar carteira';
+  }
+}
+
+async function runReadiness() {
+  const button = $('#run-readiness');
+  const panel = $('#readiness-panel');
+  button.disabled = true;
+  button.textContent = 'Executando…';
+  panel.innerHTML = '<div class="readiness-placeholder">Consultando os serviços e a blockchain…</div>';
+  try {
+    const result = await authenticatedFetch('/api/readiness?refresh=true');
+    const checks = Object.entries(result.checks || {});
+    panel.innerHTML = `
+      <div class="readiness-summary ${result.ready ? 'ready' : 'blocked'}">
+        ${result.ready ? 'Sistema pronto para live' : 'Existem pré-requisitos pendentes'}
+      </div>
+      <div class="readiness-grid">${checks.map(([name, check]) => `
+        <div class="readiness-item">
+          <span class="readiness-dot ${escapeHtml(check.status)}"></span>
+          <div><strong>${escapeHtml(name.replaceAll('_', ' '))}</strong>
+          <small>${escapeHtml(check.detail || check.status)}</small></div>
+        </div>`).join('')}
+      </div>`;
+    await load();
+  } catch (error) {
+    panel.innerHTML = `<div class="readiness-summary blocked">${escapeHtml(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Executar testes';
+  }
+}
+
+$('#refresh-wallet').addEventListener('click', refreshWallet);
+$('#run-readiness').addEventListener('click', runReadiness);
+refreshWallet().catch(error => {
+  console.error('Initial wallet refresh failed:', error);
+  load();
+});
 setInterval(load, 10000);
 </script>
 

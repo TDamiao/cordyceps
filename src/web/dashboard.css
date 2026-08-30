@@ -82,6 +82,12 @@ body {
 .topbar-link:hover { background: var(--bg-subtle); color: var(--text); }
 .topbar-link.active { background: var(--accent-light); color: var(--primary); }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-right form { display: flex; }
+.topbar-logout {
+  appearance: none; border: 0; background: transparent; color: var(--text-muted);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 4px;
+}
+.topbar-logout:hover { color: var(--text); }
 .pill {
   display: inline-flex;
   align-items: center;
@@ -117,7 +123,52 @@ body {
 .card-label { font-size: 12px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
 .card-value { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.2; }
 .card-value.sm { font-size: 18px; }
+.card-value.compact { font-size: 16px; margin-top: 8px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.value-ok { color: var(--success); }
+.value-warn { color: var(--warning); }
 .card-sub { font-size: 12px; color: var(--text-subtle); margin-top: 4px; }
+
+.section-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
+.section-heading .page-title { margin-bottom: 20px; }
+.section-heading .page-subtitle { margin-top: -16px; }
+.section-actions { display: flex; gap: 8px; margin-bottom: 24px; }
+.action-button, .github-button {
+  border: 1px solid var(--primary); border-radius: var(--radius-sm); background: var(--primary);
+  color: white; font: inherit; font-size: 13px; font-weight: 600; padding: 9px 14px;
+  cursor: pointer; text-decoration: none; text-align: center;
+}
+.action-button:hover, .github-button:hover { background: var(--primary-hover); }
+.action-button.secondary { background: white; color: var(--primary); border-color: var(--border-dark); }
+.action-button:disabled, .github-button:disabled { cursor: wait; opacity: .6; }
+.readiness-panel {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); margin: -16px 0 32px; overflow: hidden;
+}
+.readiness-placeholder { padding: 20px 24px; color: var(--text-muted); font-size: 13px; }
+.readiness-summary { padding: 12px 20px; font-size: 13px; font-weight: 700; }
+.readiness-summary.ready { color: var(--success); background: var(--success-bg); }
+.readiness-summary.blocked { color: var(--danger); background: var(--danger-bg); }
+.readiness-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+.readiness-item { display: flex; align-items: flex-start; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border); }
+.readiness-item strong { display: block; font-size: 12px; text-transform: capitalize; }
+.readiness-item small { display: block; color: var(--text-muted); font-size: 11px; line-height: 1.4; margin-top: 2px; }
+.readiness-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); margin-top: 5px; flex: none; }
+.readiness-dot.ok, .readiness-dot.ready { background: var(--success); }
+.readiness-dot.blocked, .readiness-dot.error { background: var(--danger); }
+
+/* Login */
+body.login { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, #eaf7ee, var(--bg) 45%); }
+.login-card { width: min(100%, 390px); background: white; border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-md); padding: 38px; text-align: center; }
+.login-card img { margin-bottom: 16px; }
+.login-eyebrow { color: var(--success); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+.login-card h1 { font-size: 28px; line-height: 1.2; margin: 6px 0 10px; }
+.login-copy { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; }
+.login-card .github-button { display: block; width: 100%; padding: 11px 16px; background: #24292f; border-color: #24292f; }
+.login-card .github-button:hover { background: #11151a; }
+.login-card .github-button:disabled { color: white; }
+.login-hint { color: var(--text-subtle); font-size: 11px; margin-top: 16px; }
+.login-error { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: var(--radius-sm); font-size: 12px; padding: 9px 12px; margin: -10px 0 16px; }
 
 /* ── Status Row ─────────────────────────────────────────────────────────── */
 .status-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
@@ -208,6 +259,9 @@ tbody tr:hover { background: var(--bg-subtle); }
   .cards-3 { grid-template-columns: 1fr; }
   .cards-2 { grid-template-columns: 1fr; }
   .health-grid { grid-template-columns: 1fr; }
+  .readiness-grid { grid-template-columns: 1fr; }
+  .section-heading { align-items: stretch; flex-direction: column; gap: 0; }
+  .section-actions { margin-top: -8px; }
   .container { padding: 20px 16px; }
   .topbar-inner { padding: 0 16px; }
   .table-wrap { overflow-x: auto; }

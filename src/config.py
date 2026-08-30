@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     kill_switch: bool = False
     dry_run: bool = True
     admin_token: str = ""
+    github_client_id: str = ""
+    github_key: str = ""
+    github_redirect_uri: str = "https://cordyceps.tdamiao.com/login"
+    github_allowed_user: str = "tdamiao"
 
     database_url: str = "sqlite:///./cordyceps.db"
     polygon_rpc_url: str = "https://polygon-bor-rpc.publicnode.com"

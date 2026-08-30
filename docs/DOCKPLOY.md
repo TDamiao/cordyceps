@@ -38,7 +38,11 @@ TRADING_MODE=paper
 LIVE_TRADING_ENABLED=false
 DRY_RUN=true
 KILL_SWITCH=false
-ADMIN_TOKEN=<token-aleatorio-forte>
+ADMIN_TOKEN=<token-aleatorio-forte-para-api-opcional>
+GITHUB_CLIENT_ID=<client-id-do-oauth-app>
+github_key=<client-secret-do-oauth-app>
+GITHUB_REDIRECT_URI=https://cordyceps.tdamiao.com/login
+GITHUB_ALLOWED_USER=tdamiao
 DATABASE_URL=postgresql+psycopg://cordyceps:<senha-forte>@postgres:5432/cordyceps
 POLYGON_RPC_URL=<rpc-polygon>
 PORT=8000
@@ -52,7 +56,9 @@ LOG_LEVEL=INFO
 curl -fsS https://cordyceps.tdamiao.com/health
 ```
 
-Abra `/`, autentique com `ADMIN_TOKEN` e confirme market data, WebSocket, books e paper metrics.
+No GitHub OAuth App, configure **Authorization callback URL** exatamente como
+`https://cordyceps.tdamiao.com/login`. Abra `/`, entre com a conta `tdamiao` e confirme
+market data, WebSocket, books e paper metrics.
 
 ## 4. Preparar live_test — sem armar
 
@@ -99,6 +105,7 @@ Não adicione `TRADING_MODE=live` nesta fase.
 ## Variáveis que devem ser secrets no Dokploy
 
 - `ADMIN_TOKEN`
+- `github_key`
 - `POSTGRES_PASSWORD` (ou o `DATABASE_URL` completo)
 - `PRIVATE_KEY`
 - `CLOB_API_SECRET`
@@ -119,7 +126,7 @@ Todo novo container inicia disarmed. Depois de update/rollback, rode readiness n
 
 | Sintoma | Ação |
 |---|---|
-| `/` redireciona para login e o token falha | Configure `ADMIN_TOKEN` no app e redeploy. |
+| Login informa que OAuth não está configurado | Configure `GITHUB_CLIENT_ID` e `github_key`, confira a callback `/login` e redeploy. |
 | Readiness `geographic_eligibility=blocked` | Live é proibido nessa localização. Use apenas paper; não tente bypass. |
 | `balance`/`allowance` bloqueado | Confira pUSD no funder, signature type e approvals oficiais. O bot não aprova tokens automaticamente. |
 | `clob_authentication=blocked` | Confira signer/funder/signature type e derive novamente as credenciais L2. |

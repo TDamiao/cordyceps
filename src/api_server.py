@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import html
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
-from fastapi import Body, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+import aiohttp
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import desc
 from sqlmodel import Session, select
@@ -124,30 +129,112 @@ def _token_ids() -> list[str]:
     return _bot._observer.state.get_all_tracked_tokens()
 
 
+def _login_html(error: str = "") -> str:
+    settings = _runtime.settings if _runtime else get_settings()
+    configured = bool(settings.github_client_id and settings.github_key)
+    notice = f'<p class="login-error">{html.escape(error)}</p>' if error else ""
+    if configured:
+        action = '<a class="github-button" href="/auth/github">Continuar com GitHub</a>'
+    else:
+        action = '<button class="github-button" disabled>GitHub OAuth não configurado</button>'
+    return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <title>Cordyceps — Login</title><link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"></head>
+    <body class="login"><main class="login-card">
+      <img src="/assets/favicon.svg" width="48" height="48" alt="">
+      <p class="login-eyebrow">ACESSO ADMINISTRATIVO</p><h1>Cordyceps</h1>
+      <p class="login-copy">Entre com a conta GitHub autorizada para acessar o painel.</p>
+      {notice}{action}<p class="login-hint">Apenas @tdamiao tem acesso.</p>
+    </main></body></html>"""
+
+
+async def _github_identity(code: str, verifier: str) -> str:
+    settings = _runtime.settings
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        async with session.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": settings.github_client_id,
+                "client_secret": settings.github_key,
+                "code": code,
+                "redirect_uri": settings.github_redirect_uri,
+                "code_verifier": verifier,
+            },
+        ) as response:
+            token_payload = await response.json(content_type=None)
+            if response.status != 200 or not token_payload.get("access_token"):
+                logger.warning("github.oauth_token_failed", status=response.status)
+                raise HTTPException(status_code=401, detail="GitHub authentication failed")
+        async with session.get(
+            "https://api.github.com/user",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token_payload['access_token']}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        ) as response:
+            profile = await response.json(content_type=None)
+            if response.status != 200 or not profile.get("login"):
+                logger.warning("github.user_lookup_failed", status=response.status)
+                raise HTTPException(status_code=401, detail="Could not verify GitHub user")
+            return str(profile["login"])
+
+
 @app.get("/login", response_class=HTMLResponse)
-async def login_page() -> str:
-    return """<!doctype html><html><head><meta name=viewport content='width=device-width'>
-    <title>Cordyceps Admin</title><link rel=stylesheet href=/assets/dashboard.css></head>
-    <body class=login><form method=post><h1>CORDYCEPS</h1><p>Administrative access</p>
-    <input name=token type=password autocomplete=current-password placeholder='ADMIN_TOKEN' required>
-    <button type=submit>Authenticate</button></form></body></html>"""
-
-
-@app.post("/login")
-async def login(request: Request, token: str = Form(...)) -> RedirectResponse:
+async def login_page(
+    request: Request, code: str = "", state: str = "", error: str = ""
+) -> Response:
     if _admin is None:
         raise HTTPException(status_code=503, detail="Application is starting")
-    session_id = _admin.login(token)
+    if error:
+        return HTMLResponse(_login_html("Login cancelado ou negado pelo GitHub."), status_code=401)
+    if not code:
+        return HTMLResponse(_login_html())
+    try:
+        verifier = _admin.consume_github_state(state)
+        username = await _github_identity(code, verifier)
+    except HTTPException as exc:
+        return HTMLResponse(_login_html(str(exc.detail)), status_code=exc.status_code)
+    if username.casefold() != _runtime.settings.github_allowed_user.casefold():
+        logger.warning("github.user_denied", username=username)
+        return HTMLResponse(_login_html("Esta conta GitHub não está autorizada."), status_code=403)
+    session_id = _admin.create_session()
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(
         "cordyceps_admin",
         session_id,
         httponly=True,
-        secure=request.url.scheme == "https",
-        samesite="strict",
+        secure=_runtime.settings.github_redirect_uri.startswith("https://"),
+        samesite="lax",
         max_age=8 * 3600,
     )
     return response
+
+
+@app.get("/auth/github")
+async def github_login() -> RedirectResponse:
+    if _admin is None:
+        raise HTTPException(status_code=503, detail="Application is starting")
+    settings = _runtime.settings
+    if not _admin.configured:
+        raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
+    state, verifier = _admin.begin_github_login()
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=")
+    query = urlencode(
+        {
+            "client_id": settings.github_client_id,
+            "redirect_uri": settings.github_redirect_uri,
+            "state": state,
+            "code_challenge": challenge.decode(),
+            "code_challenge_method": "S256",
+            "allow_signup": "false",
+        }
+    )
+    return RedirectResponse(f"https://github.com/login/oauth/authorize?{query}", status_code=302)
 
 
 @app.post("/logout")
