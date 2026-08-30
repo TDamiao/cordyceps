@@ -83,7 +83,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _paper_engine = create_paper_engine()
     _bot = create_bot()
     bot_task = asyncio.create_task(_bot.start(), name="cordyceps-bot")
-    await asyncio.sleep(0.05)
+    # The observer is created during bot initialization.  Do not let the
+    # scanner start with ``observer=None``: in that state it can cache markets
+    # but cannot subscribe their tokens to the CLOB WebSocket, leaving every
+    # downstream page empty.  A short bounded wait handles slow auth/network
+    # initialization while still allowing startup to continue on failure.
+    for _ in range(40):
+        if getattr(_bot, "_observer", None) is not None:
+            break
+        await asyncio.sleep(0.05)
     _scanner = create_scanner(
         observer=getattr(_bot, "_observer", None), fetcher=getattr(_bot, "_fetcher", None)
     )
@@ -342,6 +350,8 @@ async def health_endpoint() -> dict[str, Any]:
         },
         "paper_engine": paper,
         "books_with_liquidity": observer.get("books_with_liquidity", 0),
+        "book_updates": observer.get("book_updates", 0),
+        "complete_markets": observer.get("complete_markets", 0),
         "active_markets": max(
             status.get("active_markets", 0), len(_scanner._tracked) if _scanner else 0
         ),
