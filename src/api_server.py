@@ -477,6 +477,16 @@ async def resume(request: Request) -> dict[str, Any]:
     return {"kill_switch": False, "armed": False}
 
 
+@app.post("/api/control/reset-circuit-breaker")
+async def reset_circuit_breaker(request: Request) -> dict[str, Any]:
+    _require_admin(request)
+    risk_manager = getattr(_bot, "_risk_manager", None) if _bot else None
+    if risk_manager is None:
+        raise HTTPException(status_code=409, detail="Risk manager is not initialized")
+    risk_manager.reset_circuit_breaker()
+    return {"circuit_breaker": "reset", "risk": risk_manager.state}
+
+
 @app.post("/api/control/arm")
 async def arm(request: Request, payload: dict[str, str] = Body(...)) -> dict[str, Any]:
     _require_admin(request)

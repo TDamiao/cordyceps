@@ -199,6 +199,10 @@ class RiskManager:
         self._state.pause_until = 0
         logger.info("Circuit breaker reset. Resuming trading.")
 
+    def reset_circuit_breaker(self) -> None:
+        """Manually release the breaker after an operator reviewed the incident."""
+        self._reset_circuit_breaker()
+
     def _check_daily_reset(self):
         """Reset daily stats if date has changed (UTC)."""
         current_date = datetime.now(UTC).strftime("%Y-%m-%d")

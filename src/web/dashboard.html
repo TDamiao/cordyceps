@@ -29,6 +29,7 @@
       <a class="topbar-link" href="/opportunities">Oportunidades</a>
       <a class="topbar-link" href="/trades">Trades</a>
       <a class="topbar-link" href="/healthcheck">Health</a>
+      <a class="topbar-link" href="#configuracao">Configuração</a>
     </nav>
     <div class="topbar-right">
       <span id="mode-pill" class="pill pill-paper">PAPER</span>
@@ -61,7 +62,6 @@
     <div><h2 class="page-title">Carteira &amp; segurança</h2><p class="page-subtitle">Dados reais do funder e testes necessários antes do modo live.</p></div>
     <div class="section-actions">
       <button class="action-button secondary" id="refresh-wallet" type="button">Atualizar carteira</button>
-      <button class="action-button" id="run-readiness" type="button">Executar testes</button>
     </div>
   </div>
   <div class="cards cards-4">
@@ -71,7 +71,33 @@
     <div class="card"><div class="card-label">Autenticação CLOB</div><div class="card-value compact" id="v-clob-auth">—</div></div>
   </div>
   <div class="readiness-panel" id="readiness-panel">
-    <div class="readiness-placeholder">Clique em “Executar testes” para verificar wallet, saldo, allowances, APIs, banco e travas de segurança.</div>
+    <div class="readiness-placeholder">Os testes de saldo e segurança ficam na aba Configuração.</div>
+  </div>
+
+  <!-- Configuração operacional -->
+  <h2 class="page-title" id="configuracao">Configuração</h2>
+  <p class="page-subtitle">Estratégia, limites de risco, circuit breaker e ativação real do modo live.</p>
+  <div class="config-layout">
+    <section class="card">
+      <div class="section-heading"><div><h3>Estratégia &amp; risco</h3><p class="card-sub">Alterações são validadas e persistidas no banco.</p></div><button class="action-button" id="save-config" type="button">Salvar ajustes</button></div>
+      <div class="config-grid" id="config-form"><div class="readiness-placeholder">Carregando configurações…</div></div>
+      <div class="config-message" id="config-message"></div>
+    </section>
+    <section class="card controls-card">
+      <h3>Controles de segurança</h3>
+      <p class="card-sub">O circuit breaker bloqueia novas operações após falhas consecutivas.</p>
+      <div class="control-status" id="control-status">Aguardando status…</div>
+      <div class="control-actions">
+        <button class="action-button secondary" id="reset-circuit" type="button">Desbloquear circuit breaker</button>
+        <button class="action-button secondary" id="resume-live" type="button">Retomar operações</button>
+        <button class="action-button danger" id="kill-live" type="button">Kill switch</button>
+        <button class="action-button" id="arm-live" type="button">Armar live</button>
+      </div>
+      <div class="readiness-actions"><button class="action-button secondary" id="run-readiness" type="button">Executar testes</button></div>
+    </section>
+  </div>
+  <div class="readiness-panel config-readiness" id="config-readiness-panel">
+    <div class="readiness-placeholder">Clique em “Executar testes” para verificar todos os pré-requisitos.</div>
   </div>
 
   <!-- Metrics Cards -->
@@ -120,6 +146,9 @@ const fmt = (v, d=2) => v != null ? Number(v).toFixed(d) : '—';
 const fmtUsd = v => v != null ? '$' + Number(v).toFixed(2) : '—';
 const shortAddr = v => v ? v.slice(0, 6) + '…' + v.slice(-4) : 'Não configurado';
 const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const translations = {
+  max_trade_usd:'Tamanho máximo por trade ($)', max_total_exposure_usd:'Exposição máxima total ($)', max_daily_loss_usd:'Perda diária máxima ($)', max_open_trades:'Trades simultâneos', min_profit_threshold:'Margem mínima legada', min_net_edge:'Margem líquida mínima', min_net_profit_usd:'Lucro líquido mínimo ($)', max_slippage_pct:'Slippage máximo', orderbook_stale_ms:'Livro máximo (ms)', min_trade_shares:'Cotas mínimas', max_leg_imbalance_usd:'Desbalanceamento máximo ($)', leg_timeout_ms:'Timeout por perna (ms)', circuit_breaker_failure_threshold:'Falhas até circuit breaker', circuit_breaker_cooldown_minutes:'Cooldown circuit breaker (min)', simulated_latency_ms:'Latência simulada (ms)', market_limit:'Limite de mercados', scan_interval_seconds:'Intervalo de varredura (s)'
+};
 const timeAgo = ts => {
   if (!ts) return '—';
   const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
@@ -172,6 +201,8 @@ async function load() {
       ? 'Ilimitada' : fmtUsd(wallet.exchange_allowance);
     $('#v-clob-auth').textContent = wallet.authenticated ? 'Autorizada' : 'Não autorizada';
     $('#v-clob-auth').className = 'card-value compact ' + (wallet.authenticated ? 'value-ok' : 'value-warn');
+    const risk = status?.risk || {};
+    $('#control-status').innerHTML = `<span class="status-chip ${risk.is_paused ? 'blocked' : 'ok'}">${risk.is_paused ? 'Circuit breaker BLOQUEADO' : 'Circuit breaker liberado'}</span><span>Falhas consecutivas: ${fmt(risk.consecutive_failures, 0)}</span><span>${status?.armed ? 'Live armado' : 'Live desarmado'}</span><span>${status?.kill_switch ? 'Kill switch ativo' : 'Kill switch desligado'}</span>`;
 
     // Metrics
     const opps = hist?.opportunities || [];
@@ -240,9 +271,22 @@ async function refreshWallet() {
   }
 }
 
+async function loadConfig() {
+  const config = await authenticatedFetch('/api/config');
+  $('#config-form').innerHTML = Object.entries(config.values || {}).map(([key, value]) => `<label class="config-item"><span>${escapeHtml(translations[key] || key.replaceAll('_', ' '))}</span><small>${escapeHtml(config.descriptions?.[key] || '')}</small><input data-config-key="${escapeHtml(key)}" type="number" step="any" value="${escapeHtml(value)}"></label>`).join('');
+}
+
+async function saveConfig() {
+  const values = {};
+  document.querySelectorAll('[data-config-key]').forEach(input => { values[input.dataset.configKey] = Number(input.value); });
+  await authenticatedFetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values)});
+  $('#config-message').textContent = 'Ajustes salvos e aplicados.';
+  setTimeout(() => { $('#config-message').textContent = ''; }, 4000);
+}
+
 async function runReadiness() {
   const button = $('#run-readiness');
-  const panel = $('#readiness-panel');
+  const panel = $('#config-readiness-panel');
   button.disabled = true;
   button.textContent = 'Executando…';
   panel.innerHTML = '<div class="readiness-placeholder">Consultando os serviços e a blockchain…</div>';
@@ -269,8 +313,21 @@ async function runReadiness() {
   }
 }
 
+async function control(path, confirmation = null) {
+  const options = {method:'POST'};
+  if (confirmation !== null) { options.headers = {'Content-Type':'application/json'}; options.body = JSON.stringify({confirmation}); }
+  await authenticatedFetch(path, options);
+  await load();
+}
+
 $('#refresh-wallet').addEventListener('click', refreshWallet);
 $('#run-readiness').addEventListener('click', runReadiness);
+$('#save-config').addEventListener('click', () => saveConfig().catch(error => { $('#config-message').textContent = error.message; }));
+$('#reset-circuit').addEventListener('click', () => control('/api/control/reset-circuit-breaker'));
+$('#resume-live').addEventListener('click', () => control('/api/control/resume'));
+$('#kill-live').addEventListener('click', () => control('/api/control/kill'));
+$('#arm-live').addEventListener('click', () => { const phrase = window.prompt('Digite CORDYCEPS LIVE para confirmar a ativação real:'); if (phrase) control('/api/control/arm', phrase).catch(error => window.alert(error.message)); });
+loadConfig().catch(error => { $('#config-form').textContent = error.message; });
 refreshWallet().catch(error => {
   console.error('Initial wallet refresh failed:', error);
   load();

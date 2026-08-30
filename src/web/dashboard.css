@@ -140,7 +140,26 @@ body {
 }
 .action-button:hover, .github-button:hover { background: var(--primary-hover); }
 .action-button.secondary { background: white; color: var(--primary); border-color: var(--border-dark); }
+.action-button.danger { background: var(--danger); border-color: var(--danger); }
 .action-button:disabled, .github-button:disabled { cursor: wait; opacity: .6; }
+.config-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; margin-bottom: 16px; }
+.config-layout h3 { font-size: 16px; }
+.config-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 20px; }
+.config-item { display: flex; flex-direction: column; gap: 3px; }
+.config-item > span { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.config-item small { min-height: 30px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.config-item input { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 9px; color: var(--text); font: inherit; font-size: 13px; }
+.config-item input:focus { outline: 2px solid var(--accent-light); border-color: var(--accent); }
+.config-message { color: var(--success); font-size: 12px; margin-top: 14px; min-height: 18px; }
+.controls-card { display: flex; flex-direction: column; }
+.control-status { display: flex; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: 12px; margin: 20px 0; }
+.status-chip { display: inline-block; width: fit-content; border-radius: 999px; padding: 4px 9px; font-size: 11px; font-weight: 700; }
+.status-chip.ok { color: var(--success); background: var(--success-bg); }
+.status-chip.blocked { color: var(--danger); background: var(--danger-bg); }
+.control-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }
+.control-actions .action-button { font-size: 11px; padding: 9px 6px; }
+.readiness-actions { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 16px; }
+.config-readiness { margin-top: 0; }
 .readiness-panel {
   background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); margin: -16px 0 32px; overflow: hidden;
@@ -260,6 +279,8 @@ tbody tr:hover { background: var(--bg-subtle); }
   .cards-2 { grid-template-columns: 1fr; }
   .health-grid { grid-template-columns: 1fr; }
   .readiness-grid { grid-template-columns: 1fr; }
+  .config-layout { grid-template-columns: 1fr; }
+  .config-grid { grid-template-columns: 1fr; }
   .section-heading { align-items: stretch; flex-direction: column; gap: 0; }
   .section-actions { margin-top: -8px; }
   .container { padding: 20px 16px; }
