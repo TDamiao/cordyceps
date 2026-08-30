@@ -5,10 +5,13 @@ Fetches market metadata from Gamma API and CLOB, builds mappings,
 and caches results for efficient access.
 """
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import aiohttp
 
@@ -230,7 +233,29 @@ class MarketFetcher:
                     min_liquidity=min_liquidity,
                     limit=limit,
                 )
+            # Last-resort path for Dokploy images where aiohttp's CONNECT
+            # tunnel is reset but the container's curl/urllib route works.
+            try:
+                query = urlencode(params)
+                request = Request(f"{self.gamma_host}/markets?{query}")
+                raw = await asyncio.to_thread(self._urlopen_json, request)
+                data = raw.get("data", raw.get("markets", [])) if isinstance(raw, dict) else raw
+                markets = [m for item in data if (m := self._parse_market(item)) is not None]
+                if binary_only:
+                    markets = [m for m in markets if m.is_binary]
+                self._cache.update(markets)
+                logger.info("Markets fetched via urllib fallback", filtered=len(markets))
+                return markets
+            except Exception as fallback_exc:
+                logger.error("Gamma urllib fallback failed", error=str(fallback_exc))
             return []
+
+    @staticmethod
+    def _urlopen_json(request: Request) -> Any:
+        with urlopen(request, timeout=15) as response:  # noqa: S310 - fixed Gamma URL
+            import json
+
+            return json.loads(response.read())
 
     async def fetch_market_by_id(self, condition_id: str) -> MarketInfo | None:
         """
