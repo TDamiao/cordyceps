@@ -342,7 +342,9 @@ async def health_endpoint() -> dict[str, Any]:
         },
         "paper_engine": paper,
         "books_with_liquidity": observer.get("books_with_liquidity", 0),
-        "active_markets": status.get("active_markets", 0),
+        "active_markets": max(
+            status.get("active_markets", 0), len(_scanner._tracked) if _scanner else 0
+        ),
         "uptime": round(time.time() - _startup_ts, 2) if _startup_ts else 0,
     }
 
@@ -381,7 +383,7 @@ async def api_status(request: Request) -> dict[str, Any]:
             "healthy" if status.get("health", {}).get("websocket_connected", False) else "stopped"
         ),
         "scanner": _scanner.is_running if _scanner else False,
-        "markets": status.get("active_markets", 0),
+        "markets": max(status.get("active_markets", 0), len(_scanner._tracked) if _scanner else 0),
         "tokens": observer.get("tracked_tokens", 0),
         "books_with_liquidity": observer.get("books_with_liquidity", 0),
         "book_updates": observer.get("book_updates", 0),
