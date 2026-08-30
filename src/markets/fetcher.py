@@ -173,11 +173,6 @@ class MarketFetcher:
             "limit": limit,
             "active": "true" if active_only else "false",
             "closed": "false",
-            # Arbitrage requires both legs to have executable depth.  Gamma's
-            # default ordering is not a liquidity ranking, so a small market
-            # limit can otherwise monitor an arbitrary, thin slice.
-            "order": "liquidity_num",
-            "ascending": "false",
         }
 
         try:
@@ -210,6 +205,11 @@ class MarketFetcher:
                     continue
 
                 markets.append(market)
+
+            # The offset-based Gamma /markets endpoint rejects the documented
+            # liquidity_num ordering field with HTTP 422. Rank the returned
+            # slice locally so market discovery remains available.
+            markets.sort(key=lambda market: market.liquidity, reverse=True)
 
             # Update cache
             self._cache.update(markets)
@@ -255,6 +255,13 @@ class MarketFetcher:
                 markets = [m for item in data if (m := self._parse_market(item)) is not None]
                 if binary_only:
                     markets = [m for m in markets if m.is_binary]
+                if min_volume > 0:
+                    minimum_volume = Decimal(str(min_volume))
+                    markets = [m for m in markets if m.volume >= minimum_volume]
+                if min_liquidity > 0:
+                    minimum_liquidity = Decimal(str(min_liquidity))
+                    markets = [m for m in markets if m.liquidity >= minimum_liquidity]
+                markets.sort(key=lambda market: market.liquidity, reverse=True)
                 self._cache.update(markets)
                 logger.info("Markets fetched via urllib fallback", filtered=len(markets))
                 return markets

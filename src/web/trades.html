@@ -36,9 +36,12 @@ const fmtUsd = v => v != null ? '$'+Number(v).toFixed(2) : '—';
 const timeAgo = ts => { if(!ts) return '—'; const s=Math.floor((Date.now()-new Date(ts).getTime())/1000); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; };
 async function load() {
   try {
-    const h = await fetch('/health').then(r=>r.json());
+    const [h, s] = await Promise.all([
+      fetch('/health').then(r=>r.json()),
+      fetch('/api/status').then(r=>r.json()).catch(()=>null),
+    ]);
     const pill = document.querySelector('#mode-pill');
-    pill.textContent = (h.mode||'paper').toUpperCase();
+    pill.textContent = h.mode === 'live' ? (s?.armed ? 'LIVE ARMADO' : 'LIVE DESARMADO') : (h.mode||'paper').toUpperCase();
     pill.className = 'pill '+(h.mode==='live'?'pill-live':'pill-paper');
     document.querySelector('#trades-title').textContent = h.mode === 'live' ? 'Trades LIVE' : 'Trades Simulados';
     const r = await fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({trades:[]}));

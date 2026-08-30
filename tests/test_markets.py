@@ -6,6 +6,37 @@ Run with: pytest tests/test_markets.py -v
 
 from decimal import Decimal
 
+import pytest
+
+
+class _MarketResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    def raise_for_status(self):
+        return None
+
+    async def json(self):
+        return self.payload
+
+
+class _MarketSession:
+    closed = False
+
+    def __init__(self, payload):
+        self.payload = payload
+        self.params = None
+
+    def get(self, _url, params=None):
+        self.params = params
+        return _MarketResponse(self.payload)
+
 
 class TestToken:
     """Tests for Token dataclass."""
@@ -270,6 +301,33 @@ class TestMarketFetcher:
         assert market.tokens[0].price == Decimal("0.55")
         assert market.volume == Decimal("10000")
         assert market.fees_enabled is False
+
+    @pytest.mark.asyncio
+    async def test_fetch_markets_uses_supported_params_and_ranks_locally(self):
+        """Gamma offset endpoint must not receive its unsupported order field."""
+        from src.markets.fetcher import MarketFetcher
+
+        def market(condition_id: str, liquidity: int):
+            return {
+                "conditionId": condition_id,
+                "questionID": f"q-{condition_id}",
+                "question": f"Market {condition_id}",
+                "slug": condition_id,
+                "clobTokenIds": f'["yes-{condition_id}", "no-{condition_id}"]',
+                "outcomes": ["Yes", "No"],
+                "active": True,
+                "closed": False,
+                "liquidityNum": liquidity,
+            }
+
+        fetcher = MarketFetcher()
+        session = _MarketSession([market("thin", 10), market("deep", 1000)])
+        fetcher._session = session
+
+        markets = await fetcher.fetch_markets()
+
+        assert session.params == {"limit": 100, "active": "true", "closed": "false"}
+        assert [item.condition_id for item in markets] == ["deep", "thin"]
 
     def test_parse_market_no_tokens(self):
         """Test parsing market with no tokens returns None."""
