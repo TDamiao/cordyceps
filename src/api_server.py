@@ -577,6 +577,14 @@ async def markets(request: Request) -> dict[str, Any]:
     _require_admin(request)
     fetcher = getattr(_bot, "_fetcher", None) if _bot else None
     rows = fetcher.get_all_cached_markets() if fetcher else []
+    # Keep the markets page useful during a slow/restarting scanner.  Gamma is
+    # public metadata; a direct refresh also repopulates the same cache used by
+    # the scanner and avoids presenting a misleading empty dashboard.
+    if fetcher and not rows:
+        try:
+            rows = await fetcher.fetch_markets(active_only=True, binary_only=True, limit=100)
+        except Exception as exc:  # pragma: no cover - defensive network path
+            logger.warning("markets.direct_refresh_failed", error=str(exc))
     return {
         "markets": [
             {
