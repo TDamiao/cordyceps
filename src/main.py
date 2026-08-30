@@ -64,7 +64,7 @@ class ArbitrageBot:
         )
         self._health = HealthMonitor(self._metrics)
 
-        self._fetcher = MarketFetcher()
+        self._fetcher = MarketFetcher(gamma_host=self._settings.gamma_api_url)
         self._active_markets: dict[str, list[str]] = {}
 
         self._running = False
@@ -158,6 +158,11 @@ class ArbitrageBot:
 
             if not markets:
                 logger.warning("No active markets found")
+                # Keep the observer alive: the scanner may recover from a
+                # transient Gamma/proxy failure and populate markets later.
+                observer_task = asyncio.create_task(self._run_observer())
+                await self._shutdown_event.wait()
+                observer_task.cancel()
                 return
 
             logger.info("Found active markets", count=len(markets))

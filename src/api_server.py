@@ -559,6 +559,30 @@ async def history(request: Request, limit: int = 20) -> dict[str, Any]:
         }
 
 
+@app.get("/api/markets")
+async def markets(request: Request) -> dict[str, Any]:
+    """Return markets discovered by the scanner, not only traded markets."""
+    _require_admin(request)
+    fetcher = getattr(_bot, "_fetcher", None) if _bot else None
+    rows = fetcher.get_all_cached_markets() if fetcher else []
+    return {
+        "markets": [
+            {
+                "condition_id": row.condition_id,
+                "question": row.question,
+                "slug": row.slug,
+                "outcomes": [token.outcome for token in row.tokens],
+                "token_ids": row.token_ids,
+                "active": row.active,
+                "closed": row.closed,
+                "neg_risk": row.neg_risk,
+                "end_date": row.end_date,
+            }
+            for row in rows
+        ]
+    }
+
+
 def run_server(port: int | None = None) -> None:
     import uvicorn
 

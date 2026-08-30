@@ -130,7 +130,9 @@ class MarketFetcher:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            # Dokploy routes egress through HTTP(S)_PROXY. aiohttp ignores
+            # those variables unless trust_env is explicitly enabled.
+            self._session = aiohttp.ClientSession(trust_env=True)
         return self._session
 
     async def close(self) -> None:
@@ -173,7 +175,11 @@ class MarketFetcher:
 
             async with session.get(url, params=params) as response:
                 response.raise_for_status()
-                data = await response.json()
+            data = await response.json()
+            if isinstance(data, dict):
+                data = data.get("data", data.get("markets", []))
+            if not isinstance(data, list):
+                raise ValueError("Gamma API returned an unexpected market payload")
 
             markets = []
             for item in data:
@@ -310,11 +316,25 @@ class MarketFetcher:
             else:
                 clob_token_ids = []
 
-            # Parse prices (comma-separated string)
+            if isinstance(outcomes, str):
+                try:
+                    outcomes = json.loads(outcomes)
+                except json.JSONDecodeError:
+                    outcomes = [value.strip() for value in outcomes.split(",")]
+            if not isinstance(outcomes, list):
+                outcomes = []
+
+            # Gamma has returned both JSON arrays and comma-separated strings.
             prices = []
             if outcome_prices:
                 try:
-                    prices = [Decimal(p.strip()) for p in outcome_prices.split(",")]
+                    if isinstance(outcome_prices, list):
+                        raw_prices = outcome_prices
+                    elif isinstance(outcome_prices, str) and outcome_prices.lstrip().startswith("["):
+                        raw_prices = json.loads(outcome_prices)
+                    else:
+                        raw_prices = str(outcome_prices).split(",")
+                    prices = [Decimal(str(p).strip()) for p in raw_prices]
                 except Exception:
                     prices = []
 

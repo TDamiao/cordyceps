@@ -42,7 +42,7 @@ async function load() {
     pill.className = 'pill '+(h.mode==='live'?'pill-live':'pill-paper');
     const r = await fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({trades:[]}));
     const tbl = document.querySelector('#tbl');
-    const t = r.paper_trades || [];
+    const t = [...(r.paper_trades || []), ...(r.executions || [])];
     if (!t.length) { tbl.innerHTML = '<tr><td colspan="9"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><h3>Nenhum trade simulado</h3><p>Quando uma oportunidade for executada, o resultado aparecerá aqui.</p></div></td></tr>'; return; }
     tbl.innerHTML = t.map(x => `<tr>
       <td>${timeAgo(x.timestamp||x.created_at)}</td>
