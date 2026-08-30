@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Trades — Cordyceps</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner">
+  <a class="topbar-brand" href="/">
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="g" x1="16" y1="2" x2="16" y2="30" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#52b788"/><stop offset="100%" stop-color="#1b4332"/></linearGradient></defs><rect x="14" y="14" width="4" height="16" rx="2" fill="url(#g)"/><ellipse cx="16" cy="12" rx="7" ry="8" fill="url(#g)"/></svg>
+    <span>Cordyceps</span>
+  </a>
+  <nav class="topbar-nav">
+    <a class="topbar-link" href="/">Dashboard</a>
+    <a class="topbar-link" href="/markets">Mercados</a>
+    <a class="topbar-link" href="/opportunities">Oportunidades</a>
+    <a class="topbar-link active" href="/trades">Trades</a>
+    <a class="topbar-link" href="/healthcheck">Health</a>
+  </nav>
+  <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span></div>
+</div></header>
+<div class="container">
+  <h1 class="page-title">Trades Simulados</h1>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Criado</th><th>Capital</th><th>Lucro Esp.</th><th>Lucro Sim.</th><th>YES Fill</th><th>NO Fill</th><th>Slippage</th><th>Latência</th><th>Status</th></tr></thead>
+    <tbody id="tbl"><tr><td colspan="9"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><h3>Nenhum trade simulado</h3><p>Quando uma oportunidade for executada, o resultado aparecerá aqui.</p></div></td></tr></tbody>
+  </table></div>
+</div>
+<script>
+const fmt = (v,d=2) => v != null ? Number(v).toFixed(d) : '—';
+const fmtUsd = v => v != null ? '$'+Number(v).toFixed(2) : '—';
+const timeAgo = ts => { if(!ts) return '—'; const s=Math.floor((Date.now()-new Date(ts).getTime())/1000); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; };
+async function load() {
+  try {
+    const h = await fetch('/health').then(r=>r.json());
+    const pill = document.querySelector('#mode-pill');
+    pill.textContent = (h.mode||'paper').toUpperCase();
+    pill.className = 'pill '+(h.mode==='live'?'pill-live':'pill-paper');
+    const r = await fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({trades:[]}));
+    const tbl = document.querySelector('#tbl');
+    const t = r.paper_trades || [];
+    if (!t.length) { tbl.innerHTML = '<tr><td colspan="9"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><h3>Nenhum trade simulado</h3><p>Quando uma oportunidade for executada, o resultado aparecerá aqui.</p></div></td></tr>'; return; }
+    tbl.innerHTML = t.map(x => `<tr>
+      <td>${timeAgo(x.timestamp||x.created_at)}</td>
+      <td>${fmtUsd(x.capital_used)}</td>
+      <td>${fmtUsd(x.expected_profit)}</td>
+      <td>${fmtUsd(x.simulated_profit||x.realized_profit)}</td>
+      <td>${fmt(x.yes_fill, 4)}</td>
+      <td>${fmt(x.no_fill, 4)}</td>
+      <td>${fmt(x.slippage*100, 2)}%</td>
+      <td>${x.latency_ms||'—'}ms</td>
+      <td><span class="pill ${x.status==='filled'?'pill-ok':x.status==='leg_failed'||x.status==='failed'?'pill-err':'pill-paper'}">${x.status||'—'}</span></td>
+    </tr>`).join('');
+  } catch(e) { console.error(e); }
+}
+load(); setInterval(load, 10000);
+</script>
+</body></html>

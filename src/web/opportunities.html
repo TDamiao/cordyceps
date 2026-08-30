@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Oportunidades — Cordyceps</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner">
+  <a class="topbar-brand" href="/">
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="g" x1="16" y1="2" x2="16" y2="30" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#52b788"/><stop offset="100%" stop-color="#1b4332"/></linearGradient></defs><rect x="14" y="14" width="4" height="16" rx="2" fill="url(#g)"/><ellipse cx="16" cy="12" rx="7" ry="8" fill="url(#g)"/></svg>
+    <span>Cordyceps</span>
+  </a>
+  <nav class="topbar-nav">
+    <a class="topbar-link" href="/">Dashboard</a>
+    <a class="topbar-link" href="/markets">Mercados</a>
+    <a class="topbar-link active" href="/opportunities">Oportunidades</a>
+    <a class="topbar-link" href="/trades">Trades</a>
+    <a class="topbar-link" href="/healthcheck">Health</a>
+  </nav>
+  <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span></div>
+</div></header>
+<div class="container">
+  <h1 class="page-title">Oportunidades de Arbitragem</h1>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Detectado</th><th>Mercado</th><th>YES VWAP</th><th>NO VWAP</th><th>Total</th><th>Edge</th><th>Executável</th><th>Capital</th><th>Lucro Esp.</th><th>Status</th></tr></thead>
+    <tbody id="tbl"><tr><td colspan="10"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><h3>Nenhuma oportunidade detectada</h3><p>O scanner está monitorando order books em tempo real.</p></div></td></tr></tbody>
+  </table></div>
+</div>
+<script>
+const fmt = (v,d=2) => v != null ? Number(v).toFixed(d) : '—';
+const fmtUsd = v => v != null ? '$'+Number(v).toFixed(2) : '—';
+const timeAgo = ts => { if(!ts) return '—'; const s=Math.floor((Date.now()-new Date(ts).getTime())/1000); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; };
+async function load() {
+  try {
+    const h = await fetch('/health').then(r=>r.json());
+    const pill = document.querySelector('#mode-pill');
+    pill.textContent = (h.mode||'paper').toUpperCase();
+    pill.className = 'pill '+(h.mode==='live'?'pill-live':'pill-paper');
+    const r = await fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({opportunities:[]}));
+    const tbl = document.querySelector('#tbl');
+    const o = r.opportunities || [];
+    if (!o.length) { tbl.innerHTML = '<tr><td colspan="10"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><h3>Nenhuma oportunidade detectada</h3><p>O scanner está monitorando order books em tempo real.</p></div></td></tr>'; return; }
+    tbl.innerHTML = o.map(x => `<tr>
+      <td>${timeAgo(x.timestamp||x.detected_at)}</td>
+      <td>${(x.market_question||x.market||'—').substring(0,40)}</td>
+      <td>${fmt(x.yes_vwap, 4)}</td>
+      <td>${fmt(x.no_vwap, 4)}</td>
+      <td>${fmt(x.combined_price||x.total_cost, 4)}</td>
+      <td>${fmt((x.net_edge||x.gross_edge||0)*100, 2)}%</td>
+      <td>${fmt(x.executable_size, 1)}</td>
+      <td>${fmtUsd(x.capital_required||x.total_cost)}</td>
+      <td>${fmtUsd(x.expected_profit||x.expected_profit_usd)}</td>
+      <td><span class="pill ${x.status==='simulated'?'pill-ok':x.status==='rejected'?'pill-err':'pill-paper'}">${x.status||'—'}</span></td>
+    </tr>`).join('');
+  } catch(e) { console.error(e); }
+}
+load(); setInterval(load, 10000);
+</script>
+</body></html>

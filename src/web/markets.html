@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Mercados — Cordyceps</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="topbar-brand" href="/">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="g" x1="16" y1="2" x2="16" y2="30" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#52b788"/><stop offset="100%" stop-color="#1b4332"/></linearGradient></defs><rect x="14" y="14" width="4" height="16" rx="2" fill="url(#g)"/><ellipse cx="16" cy="12" rx="7" ry="8" fill="url(#g)"/></svg>
+      <span>Cordyceps</span>
+    </a>
+    <nav class="topbar-nav">
+      <a class="topbar-link" href="/">Dashboard</a>
+      <a class="topbar-link active" href="/markets">Mercados</a>
+      <a class="topbar-link" href="/opportunities">Oportunidades</a>
+      <a class="topbar-link" href="/trades">Trades</a>
+      <a class="topbar-link" href="/healthcheck">Health</a>
+    </nav>
+    <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span></div>
+  </div>
+</header>
+<div class="container">
+  <h1 class="page-title">Mercados Descobertos</h1>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Pergunta</th><th>Outcomes</th><th>Token IDs</th><th>Ativo</th><th>Neg Risk</th><th>Encerramento</th><th>Descoberto</th></tr></thead>
+      <tbody id="tbl"><tr><td colspan="7"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg><h3>Nenhum mercado descoberto</h3><p>O scanner está buscando mercados ativos na Polymarket.</p></div></td></tr></tbody>
+    </table>
+  </div>
+</div>
+<script>
+const fmt = (v,d=2) => v != null ? Number(v).toFixed(d) : '—';
+const timeAgo = ts => { if(!ts) return '—'; const s=Math.floor((Date.now()-new Date(ts).getTime())/1000); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; };
+async function load() {
+  try {
+    const h = await fetch('/health').then(r=>r.json());
+    const pill = document.querySelector('#mode-pill');
+    pill.textContent = (h.mode||'paper').toUpperCase();
+    pill.className = 'pill '+(h.mode==='live'?'pill-live':'pill-paper');
+    const r = await fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({markets:[]}));
+    const tbl = document.querySelector('#tbl');
+    const m = (r.executions || r.paper_trades || []).map(e => ({question: e.market_question || e.market || e.opportunity_id || "—", outcomes: [], token_ids: [], active: true, neg_risk: false, end_date: "—", discovered_at: e.created_at || e.timestamp}));
+    if (!m.length) { tbl.innerHTML = '<tr><td colspan="7"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg><h3>Nenhum mercado descoberto</h3><p>O scanner está buscando mercados ativos na Polymarket.</p></div></td></tr>'; return; }
+    tbl.innerHTML = m.map(x => `<tr>
+      <td>${(x.question||x.slug||'—').substring(0,60)}</td>
+      <td>${(x.outcomes||[]).join(', ')||'—'}</td>
+      <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis">${(x.token_ids||[]).join(', ')||'—'}</td>
+      <td>${x.active?'Sim':'Não'}</td>
+      <td>${x.neg_risk?'Sim':'Não'}</td>
+      <td>${x.end_date||'—'}</td>
+      <td>${timeAgo(x.discovered_at)}</td>
+    </tr>`).join('');
+  } catch(e) { console.error(e); }
+}
+load(); setInterval(load, 30000);
+</script>
+</body></html>

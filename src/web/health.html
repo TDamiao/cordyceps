@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Health — Cordyceps</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner">
+  <a class="topbar-brand" href="/">
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="g" x1="16" y1="2" x2="16" y2="30" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#52b788"/><stop offset="100%" stop-color="#1b4332"/></linearGradient></defs><rect x="14" y="14" width="4" height="16" rx="2" fill="url(#g)"/><ellipse cx="16" cy="12" rx="7" ry="8" fill="url(#g)"/></svg>
+    <span>Cordyceps</span>
+  </a>
+  <nav class="topbar-nav">
+    <a class="topbar-link" href="/">Dashboard</a>
+    <a class="topbar-link" href="/markets">Mercados</a>
+    <a class="topbar-link" href="/opportunities">Oportunidades</a>
+    <a class="topbar-link" href="/trades">Trades</a>
+    <a class="topbar-link active" href="/health">Health</a>
+  </nav>
+  <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span></div>
+</div></header>
+<div class="container">
+  <h1 class="page-title">Health Check</h1>
+  <div class="health-grid" id="health-grid">
+    <div class="health-item"><span class="health-label">Status</span><span class="health-value" id="h-status">—</span></div>
+    <div class="health-item"><span class="health-label">Modo</span><span class="health-value" id="h-mode">—</span></div>
+    <div class="health-item"><span class="health-label">Database</span><span class="health-value" id="h-db">—</span></div>
+    <div class="health-item"><span class="health-label">WebSocket</span><span class="health-value" id="h-ws">—</span></div>
+    <div class="health-item"><span class="health-label">Scanner</span><span class="health-value" id="h-scanner">—</span></div>
+    <div class="health-item"><span class="health-label">Mercados Rastreados</span><span class="health-value" id="h-markets">—</span></div>
+    <div class="health-item"><span class="health-label">Books com Liquidez</span><span class="health-value" id="h-books">—</span></div>
+    <div class="health-item"><span class="health-label">Trades Paper</span><span class="health-value" id="h-trades">—</span></div>
+    <div class="health-item"><span class="health-label">Lucro Total</span><span class="health-value" id="h-profit">—</span></div>
+    <div class="health-item"><span class="health-label">Uptime</span><span class="health-value" id="h-uptime">—</span></div>
+  </div>
+  <div style="margin-top:24px"><pre id="json-raw" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-size:12px;overflow-x:auto;white-space:pre-wrap"></pre></div>
+</div>
+<script>
+const fmt = (v,d=2) => v != null ? Number(v).toFixed(d) : '—';
+async function load() {
+  try {
+    const r = await fetch('/health').then(r=>r.json());
+    const pill = document.querySelector('#mode-pill');
+    pill.textContent = (r.mode||'paper').toUpperCase();
+    pill.className = 'pill '+(r.mode==='live'?'pill-live':'pill-paper');
+    const ok = r.status === 'ok' || r.status === 'running';
+    document.querySelector('#h-status').textContent = r.status || '—';
+    document.querySelector('#h-status').style.color = ok ? 'var(--success)' : 'var(--danger)';
+    document.querySelector('#h-mode').textContent = (r.mode||'paper').toUpperCase();
+    document.querySelector('#h-db').textContent = r.database || '—';
+    document.querySelector('#h-ws').textContent = r.websocket?.connected ? 'Conectado' : 'Desconectado';
+    document.querySelector('#h-ws').style.color = r.websocket?.connected ? 'var(--success)' : 'var(--danger)';
+    document.querySelector('#h-scanner').textContent = r.scanner?.running ? 'Rodando' : 'Parado';
+    document.querySelector('#h-markets').textContent = r.scanner?.tracked_markets || 0;
+    document.querySelector('#h-books').textContent = r.books_with_liquidity || 0;
+    document.querySelector('#h-trades').textContent = r.paper_engine?.trade_count || 0;
+    document.querySelector('#h-profit').textContent = '$' + fmt(r.paper_engine?.total_profit || 0);
+    document.querySelector('#h-uptime').textContent = fmt(r.uptime, 0) + 's';
+    document.querySelector('#json-raw').textContent = JSON.stringify(r, null, 2);
+  } catch(e) { console.error(e); }
+}
+load(); setInterval(load, 5000);
+</script>
+</body></html>

@@ -1,170 +1,189 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cordyceps — Painel de Arbitragem Polymarket</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Cordyceps</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 </head>
 <body>
-  <header class="app-header">
-    <div class="header-brand">
-      <div class="logo-icon">🌿</div>
-      <div>
-        <span class="eyebrow">SISTEMA DE ARBITRAGEM POLYMARKET</span>
-        <h1>CORDYCEPS</h1>
-      </div>
+
+<!-- Topbar -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="topbar-brand" href="/">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+        <defs><linearGradient id="g" x1="16" y1="2" x2="16" y2="30" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#52b788"/><stop offset="100%" stop-color="#1b4332"/>
+        </linearGradient></defs>
+        <rect x="14" y="14" width="4" height="16" rx="2" fill="url(#g)"/>
+        <ellipse cx="16" cy="12" rx="7" ry="8" fill="url(#g)"/>
+      </svg>
+      <span>Cordyceps</span>
+    </a>
+    <nav class="topbar-nav">
+      <a class="topbar-link active" href="/">Dashboard</a>
+      <a class="topbar-link" href="/markets">Mercados</a>
+      <a class="topbar-link" href="/opportunities">Oportunidades</a>
+      <a class="topbar-link" href="/trades">Trades</a>
+      <a class="topbar-link" href="/healthcheck">Health</a>
+    </nav>
+    <div class="topbar-right">
+      <span id="mode-pill" class="pill pill-paper">PAPER</span>
     </div>
-    <div class="header-actions">
-      <span id="mode" class="badge badge-mode">SIMULAÇÃO</span>
-      <span id="health" class="badge badge-health">INICIANDO</span>
-      <form method="post" action="/logout">
-        <button type="submit" class="btn btn-secondary btn-sm">Sair</button>
-      </form>
-    </div>
-  </header>
+  </div>
+</header>
 
-  <main class="app-container">
-    <div id="attention" class="banner-attention hidden">
-      ⚠️ <strong>ATENÇÃO NECESSÁRIA:</strong> Existem posições ou pernas incompletas que requerem reconciliação manual.
-    </div>
+<div class="container">
 
-    <!-- Grid de Métricas Principais -->
-    <section class="grid grid-4">
-      <!-- Sistema -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-tag">STATUS</span>
-          <h2>Sistema &amp; Rede</h2>
-        </div>
-        <div id="systemMetrics" class="metric-list"></div>
-      </div>
+  <!-- Status Row -->
+  <div class="status-row" id="status-row">
+    <div class="status-item"><div class="status-dot" id="dot-db"></div><span>Database</span></div>
+    <div class="status-item"><div class="status-dot" id="dot-ws"></div><span>WebSocket</span></div>
+    <div class="status-item"><div class="status-dot" id="dot-scanner"></div><span>Scanner</span></div>
+    <div class="status-item"><span id="uptime-text">Uptime: —</span></div>
+  </div>
 
-      <!-- Estratégia -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-tag">SCANNER</span>
-          <h2>Estratégia &amp; Margem</h2>
-        </div>
-        <div id="strategyMetrics" class="metric-list"></div>
-      </div>
+  <!-- P&L Cards -->
+  <h2 class="page-title">P&amp;L</h2>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Capital Virtual</div><div class="card-value" id="v-capital">—</div></div>
+    <div class="card"><div class="card-label">P&amp;L Hoje</div><div class="card-value" id="v-pnl-today">—</div></div>
+    <div class="card"><div class="card-label">P&amp;L Acumulado</div><div class="card-value" id="v-pnl-total">—</div></div>
+    <div class="card"><div class="card-label">ROI</div><div class="card-value" id="v-roi">—</div></div>
+  </div>
 
-      <!-- Carteira -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-tag">FINANCEIRO</span>
-          <h2>Carteira &amp; Saldo</h2>
-        </div>
-        <div id="walletMetrics" class="metric-list"></div>
-        <div class="card-footer">
-          <button id="refreshWallet" class="btn btn-secondary btn-block">🔄 Atualizar Carteira</button>
-        </div>
-      </div>
+  <!-- Metrics Cards -->
+  <h2 class="page-title">Métricas</h2>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Oportunidades Hoje</div><div class="card-value sm" id="v-opp-today">—</div></div>
+    <div class="card"><div class="card-label">Executáveis</div><div class="card-value sm" id="v-opp-exec">—</div></div>
+    <div class="card"><div class="card-label">Trades Simulados</div><div class="card-value sm" id="v-trades">—</div></div>
+    <div class="card"><div class="card-label">Fill Rate</div><div class="card-value sm" id="v-fill-rate">—</div></div>
+  </div>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Leg Failures</div><div class="card-value sm" id="v-leg-fail">—</div></div>
+    <div class="card"><div class="card-label">Edge Médio</div><div class="card-value sm" id="v-edge-avg">—</div></div>
+    <div class="card"><div class="card-label">Maior Edge</div><div class="card-value sm" id="v-edge-max">—</div></div>
+    <div class="card"><div class="card-label">Exposição Atual</div><div class="card-value sm" id="v-exposure">—</div></div>
+  </div>
 
-      <!-- Controles -->
-      <div class="card card-controls">
-        <div class="card-header">
-          <span class="card-tag">CONTROLE</span>
-          <h2>Execução &amp; Risco</h2>
-        </div>
-        <div id="controlState" class="metric-list"></div>
-        <div class="card-footer">
-          <div class="btn-group">
-            <button id="arm" class="btn btn-primary">⚡ Armar Live</button>
-            <button id="kill" class="btn btn-danger">🛑 Kill Switch</button>
-            <button id="resume" class="btn btn-secondary">▶️ Retomar</button>
+  <!-- Recent Opportunities Table -->
+  <h2 class="page-title">Oportunidades Recentes</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Horário</th><th>Mercado</th><th>YES VWAP</th><th>NO VWAP</th>
+          <th>Total</th><th>Edge</th><th>Executável</th><th>Capital</th>
+          <th>Lucro Esperado</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="opp-table-body">
+        <tr><td colspan="10">
+          <div class="empty-state">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <h3>Nenhuma oportunidade detectada</h3>
+            <p>O scanner está monitorando mercados. Aguarde.</p>
           </div>
-        </div>
-      </div>
-    </section>
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
 
-    <!-- Verificação de Pré-Requisitos (Live Readiness) -->
-    <section class="card section-spacing">
-      <div class="section-header">
-        <div>
-          <span class="card-tag">PRÉ-VOO</span>
-          <h2>Verificação de Pré-Requisitos (Live Readiness)</h2>
-          <p class="section-desc">Testes de segurança obrigatórios para autorizar execuções em modo real.</p>
-        </div>
-        <button id="runReadiness" class="btn btn-secondary">🔍 Executar Verificação</button>
-      </div>
-      <div id="readinessSummary" class="readiness-summary"></div>
-      <div id="readinessChecks" class="checks-grid"></div>
-    </section>
+</div>
 
-    <!-- Configuração de Parâmetros Operacionais -->
-    <section class="card section-spacing">
-      <div class="section-header">
-        <div>
-          <span class="card-tag">CONFIGURAÇÃO</span>
-          <h2>Parâmetros de Risco &amp; Estratégia</h2>
-          <p class="section-desc">Ajuste limites de risco, slippage e tamanhos de ordem em tempo real sem reiniciar o container.</p>
-        </div>
-        <button id="saveConfig" class="btn btn-primary">💾 Salvar Parâmetros</button>
-      </div>
-      <div id="configForm" class="config-grid"></div>
-      <div id="configMessage" class="status-msg"></div>
-    </section>
+<script>
+const $ = s => document.querySelector(s);
+const fmt = (v, d=2) => v != null ? Number(v).toFixed(d) : '—';
+const fmtUsd = v => v != null ? '$' + Number(v).toFixed(2) : '—';
+const timeAgo = ts => {
+  if (!ts) return '—';
+  const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm';
+  return Math.floor(s/3600) + 'h';
+};
 
-    <!-- Tabelas de Dados e Auditoria -->
-    <section class="grid grid-2 section-spacing">
-      <div class="card">
-        <div class="card-header">
-          <h2>Oportunidades Recentes</h2>
-        </div>
-        <div id="opportunities" class="table-container"></div>
-      </div>
+async function load() {
+  try {
+    const [health, status, hist] = await Promise.all([
+      fetch('/health').then(r=>r.json()),
+      fetch('/api/status').then(r=>r.json()).catch(()=>null),
+      fetch('/api/history?limit=20').then(r=>r.json()).catch(()=>null)
+    ]);
 
-      <div class="card">
-        <div class="card-header">
-          <h2>Histórico de Operações (Trades)</h2>
-        </div>
-        <div id="trades" class="table-container"></div>
-      </div>
+    // Mode pill
+    const mode = health.mode || 'paper';
+    const pill = $('#mode-pill');
+    pill.textContent = mode.toUpperCase();
+    pill.className = 'pill ' + (mode === 'live' ? 'pill-live' : 'pill-paper');
 
-      <div class="card">
-        <div class="card-header">
-          <h2>Oportunidades Mais Próximas (Radar)</h2>
-        </div>
-        <div id="closest" class="table-container"></div>
-      </div>
+    // Status dots
+    const ws = health.websocket?.connected;
+    $('#dot-db').className = 'status-dot ' + (health.database ? 'on' : 'off');
+    $('#dot-ws').className = 'status-dot ' + (ws ? 'on' : 'off');
+    $('#dot-scanner').className = 'status-dot ' + (health.scanner?.running ? 'on' : 'off');
+    $('#uptime-text').textContent = 'Uptime: ' + fmt(health.uptime, 0) + 's';
 
-      <div class="card">
-        <div class="card-header">
-          <h2>Eventos de Risco &amp; Alertas</h2>
-        </div>
-        <div id="riskEvents" class="table-container"></div>
-      </div>
+    // P&L
+    const paper = health.paper_engine || {};
+    const totalProfit = paper.total_profit || 0;
+    const tradeCount = paper.trade_count || 0;
+    const capital = 100;
+    $('#v-capital').textContent = fmtUsd(capital);
+    $('#v-pnl-today').textContent = fmtUsd(totalProfit);
+    $('#v-pnl-total').textContent = fmtUsd(totalProfit);
+    $('#v-roi').textContent = fmt(totalProfit / capital * 100, 1) + '%';
 
-      <div class="card grid-span-full">
-        <div class="card-header">
-          <h2>Eventos do Sistema (Auditoria)</h2>
-        </div>
-        <div id="systemEvents" class="table-container"></div>
-      </div>
-    </section>
-  </main>
+    // Metrics
+    const opps = hist?.opportunities || [];
+    const trades = hist?.paper_trades || [];
+    const executable = opps.filter(o => o.status === 'executable' || o.status === 'simulated').length;
+    const fills = trades.filter(t => t.status === 'filled').length;
+    const fillRate = trades.length > 0 ? (fills / trades.length * 100) : 0;
+    const legFails = trades.filter(t => t.status === 'leg_failed').length;
+    const edges = opps.map(o => parseFloat(o.net_edge || o.gross_edge || 0)).filter(e => e > 0);
+    const avgEdge = edges.length > 0 ? edges.reduce((a,b)=>a+b,0)/edges.length : 0;
+    const maxEdge = edges.length > 0 ? Math.max(...edges) : 0;
 
-  <!-- Modal de Confirmação para Armar Live -->
-  <dialog id="armDialog" class="modal">
-    <form method="dialog" class="modal-form">
-      <h3>⚠️ Armar Modo Live Trading</h3>
-      <p>O bot começará a enviar <strong>ordens reais de dinheiro</strong> na Polymarket assim que detectar margens lucrativas.</p>
-      <div class="form-group">
-        <label for="armConfirmation">Para confirmar, digite exatamente <code>CORDYCEPS LIVE</code>:</label>
-        <input id="armConfirmation" type="text" autocomplete="off" placeholder="CORDYCEPS LIVE" class="input-text">
-      </div>
-      <div class="modal-actions">
-        <button type="button" value="cancel" class="btn btn-secondary" onclick="document.getElementById('armDialog').close()">Cancelar</button>
-        <button id="confirmArm" type="submit" class="btn btn-danger">Autorizar e Armar</button>
-      </div>
-    </form>
-  </dialog>
+    $('#v-opp-today').textContent = opps.length;
+    $('#v-opp-exec').textContent = executable;
+    $('#v-trades').textContent = trades.length;
+    $('#v-fill-rate').textContent = fmt(fillRate, 0) + '%';
+    $('#v-leg-fail').textContent = legFails;
+    $('#v-edge-avg').textContent = fmt(avgEdge * 100, 1) + '%';
+    $('#v-edge-max').textContent = fmt(maxEdge * 100, 1) + '%';
+    $('#v-exposure').textContent = fmtUsd(status?.current_exposure || 0);
 
-  <div id="toast" class="toast hidden"></div>
-  <script src="/assets/dashboard.js" defer></script>
+    // Opportunities table
+    const tbody = $('#opp-table-body');
+    if (opps.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><h3>Nenhuma oportunidade detectada</h3><p>O scanner está monitorando mercados. Aguarde.</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = opps.slice(0, 20).map(o => `<tr>
+        <td>${timeAgo(o.timestamp || o.detected_at)}</td>
+        <td>${(o.market_question || o.market || '—').substring(0,40)}</td>
+        <td>${fmt(o.yes_vwap, 4)}</td>
+        <td>${fmt(o.no_vwap, 4)}</td>
+        <td>${fmt(o.combined_price || o.total_cost, 4)}</td>
+        <td>${fmt((o.net_edge || o.gross_edge || 0) * 100, 2)}%</td>
+        <td>${fmt(o.executable_size, 1)}</td>
+        <td>${fmtUsd(o.capital_required || o.total_cost)}</td>
+        <td>${fmtUsd(o.expected_profit || o.expected_profit_usd)}</td>
+        <td><span class="pill ${o.status === 'simulated' ? 'pill-ok' : o.status === 'rejected' ? 'pill-err' : 'pill-paper'}">${o.status || '—'}</span></td>
+      </tr>`).join('');
+    }
+  } catch(e) {
+    console.error('Dashboard load error:', e);
+  }
+}
+
+load();
+setInterval(load, 10000);
+</script>
+
 </body>
 </html>

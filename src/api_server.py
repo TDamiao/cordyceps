@@ -170,6 +170,44 @@ async def dashboard(request: Request):
     return FileResponse(WEB_DIR / "dashboard.html")
 
 
+@app.get("/markets")
+async def markets_page(request: Request):
+    try:
+        _require_admin(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return RedirectResponse("/login", status_code=303)
+        raise
+    return FileResponse(WEB_DIR / "markets.html")
+
+
+@app.get("/opportunities")
+async def opportunities_page(request: Request):
+    try:
+        _require_admin(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return RedirectResponse("/login", status_code=303)
+        raise
+    return FileResponse(WEB_DIR / "opportunities.html")
+
+
+@app.get("/trades")
+async def trades_page(request: Request):
+    try:
+        _require_admin(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return RedirectResponse("/login", status_code=303)
+        raise
+    return FileResponse(WEB_DIR / "trades.html")
+
+
+@app.get("/healthcheck")
+async def healthcheck_html(request: Request):
+    return FileResponse(WEB_DIR / "health.html")
+
+
 @app.get("/health")
 async def health_endpoint() -> dict[str, Any]:
     settings = _runtime.settings if _runtime else get_settings()
@@ -197,7 +235,7 @@ async def health_endpoint() -> dict[str, Any]:
 
 
 @app.get("/status")
-async def status_endpoint() -> dict[str, Any]:
+async def status_endpoint(request: Request) -> dict[str, Any]:
     health = await health_endpoint()
     return {key: health[key] for key in ("status", "mode", "running", "websocket", "uptime")}
 
