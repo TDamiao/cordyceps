@@ -136,7 +136,13 @@ def _login_html(error: str = "") -> str:
     if configured:
         action = '<a class="github-button" href="/auth/github">Continuar com GitHub</a>'
     else:
-        action = '<button class="github-button" disabled>GitHub OAuth não configurado</button>'
+        missing = []
+        if not settings.github_client_id:
+            missing.append("GITHUB_CLIENT_ID")
+        if not settings.github_key:
+            missing.append("github_key")
+        missing_text = ", ".join(missing)
+        action = f'<button class="github-button" disabled>Falta configurar: {missing_text}</button>'
     return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="robots" content="noindex,nofollow,noarchive">
@@ -221,7 +227,15 @@ async def github_login() -> RedirectResponse:
         raise HTTPException(status_code=503, detail="Application is starting")
     settings = _runtime.settings
     if not _admin.configured:
-        raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
+        missing = []
+        if not settings.github_client_id:
+            missing.append("GITHUB_CLIENT_ID")
+        if not settings.github_key:
+            missing.append("github_key")
+        raise HTTPException(
+            status_code=503,
+            detail=f"GitHub OAuth is not configured; missing: {', '.join(missing)}",
+        )
     state, verifier = _admin.begin_github_login()
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=")
     query = urlencode(
