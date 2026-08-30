@@ -164,6 +164,8 @@ body {
   background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); margin: -16px 0 32px; overflow: hidden;
 }
+.readiness-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.readiness-panel-head h3 { font-size: 15px; }
 .readiness-placeholder { padding: 20px 24px; color: var(--text-muted); font-size: 13px; }
 .readiness-summary { padding: 12px 20px; font-size: 13px; font-weight: 700; }
 .readiness-summary.ready { color: var(--success); background: var(--success-bg); }
