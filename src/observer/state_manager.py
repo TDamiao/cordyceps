@@ -200,10 +200,7 @@ class StateManager:
         asks = sorted([a for a in asks if a.size > 0], key=lambda x: x.price)
 
         timestamp = data.get("timestamp")
-        try:
-            timestamp_ms = int(timestamp) if timestamp is not None else int(time.time() * 1000)
-        except (TypeError, ValueError):
-            timestamp_ms = int(time.time() * 1000)
+        timestamp_ms = self._normalize_timestamp_ms(timestamp)
 
         return OrderBook(
             token_id=token_id,
@@ -216,6 +213,32 @@ class StateManager:
         price = Decimal(str(data.get("price", "0")))
         size = Decimal(str(data.get("size", data.get("amount", "0"))))
         return OrderBookLevel(price=price, size=size)
+
+    @staticmethod
+    def _normalize_timestamp_ms(timestamp: object) -> int:
+        """Normalize exchange timestamps to Unix milliseconds.
+
+        CLOB events have appeared with timestamps expressed in seconds and
+        milliseconds.  Treating a seconds timestamp as milliseconds makes a
+        fresh book look decades old to the stale-book guard.
+        """
+        if timestamp is None:
+            return int(time.time() * 1000)
+
+        try:
+            value = int(float(str(timestamp).strip()))
+        except (TypeError, ValueError):
+            return int(time.time() * 1000)
+
+        # Unix seconds are currently ~10 digits; milliseconds ~13 digits;
+        # support micro/nanoseconds defensively for alternate transports.
+        if abs(value) < 100_000_000_000:
+            return value * 1000
+        if abs(value) >= 100_000_000_000_000_000:
+            return value // 1_000_000
+        if abs(value) >= 100_000_000_000_000:
+            return value // 1000
+        return value
 
     def get_all_tracked_tokens(self) -> list[str]:
         return list(self._order_books.keys())

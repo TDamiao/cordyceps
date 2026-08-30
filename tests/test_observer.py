@@ -98,6 +98,13 @@ class TestStateManager:
 
         assert len(callback_called) == 0
 
+    def test_normalizes_exchange_timestamps_to_milliseconds(self):
+        from src.observer.state_manager import StateManager
+
+        assert StateManager._normalize_timestamp_ms("1788060000") == 1788060000000
+        assert StateManager._normalize_timestamp_ms("1788060000000") == 1788060000000
+        assert StateManager._normalize_timestamp_ms("1788060000000000") == 1788060000000
+
     @pytest.mark.asyncio
     async def test_market_is_complete(self):
         """Test market completeness detection."""
