@@ -216,7 +216,7 @@ class MarketFetcher:
 
             return markets
 
-        except aiohttp.ClientError as e:
+        except Exception as e:
             logger.error("Failed to fetch markets", error=str(e))
             # Some Dokploy proxy configurations accept curl but close an
             # aiohttp CONNECT tunnel. Retry once without proxy before
@@ -237,7 +237,13 @@ class MarketFetcher:
             # tunnel is reset but the container's curl/urllib route works.
             try:
                 query = urlencode(params)
-                request = Request(f"{self.gamma_host}/markets?{query}")
+                request = Request(
+                    f"{self.gamma_host}/markets?{query}",
+                    headers={
+                        "User-Agent": "Cordyceps/1.0 (+https://cordyceps.tdamiao.com)",
+                        "Accept": "application/json",
+                    },
+                )
                 raw = await asyncio.to_thread(self._urlopen_json, request)
                 data = raw.get("data", raw.get("markets", [])) if isinstance(raw, dict) else raw
                 markets = [m for item in data if (m := self._parse_market(item)) is not None]
