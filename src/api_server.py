@@ -309,6 +309,18 @@ async def healthcheck_html(request: Request):
     return FileResponse(WEB_DIR / "health.html")
 
 
+@app.get("/config")
+async def config_page(request: Request):
+    """Serve the separate operational configuration page."""
+    try:
+        _require_admin(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return RedirectResponse("/login", status_code=303)
+        raise
+    return FileResponse(WEB_DIR / "config.html")
+
+
 @app.get("/health")
 async def health_endpoint() -> dict[str, Any]:
     settings = _runtime.settings if _runtime else get_settings()
