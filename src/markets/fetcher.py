@@ -330,7 +330,9 @@ class MarketFetcher:
                 try:
                     if isinstance(outcome_prices, list):
                         raw_prices = outcome_prices
-                    elif isinstance(outcome_prices, str) and outcome_prices.lstrip().startswith("["):
+                    elif isinstance(outcome_prices, str) and outcome_prices.lstrip().startswith(
+                        "["
+                    ):
                         raw_prices = json.loads(outcome_prices)
                     else:
                         raw_prices = str(outcome_prices).split(",")
