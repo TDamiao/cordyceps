@@ -54,7 +54,8 @@ class FeeService:
         self, condition_id: str, session: aiohttp.ClientSession | None = None
     ) -> FeeParameters:
         owns_session = session is None
-        session = session or aiohttp.ClientSession()
+        # Use Dokploy's HTTP(S)_PROXY for the CLOB fee endpoint as well.
+        session = session or aiohttp.ClientSession(trust_env=True)
         try:
             async with session.get(
                 f"{self._url}/clob-markets/{condition_id}", timeout=5
