@@ -46,6 +46,7 @@ class RiskManager:
         self._state = RiskState()
         self._current_exposure = Decimal("0")
         self._open_trades = 0
+        self._favorite_positions = []
 
         logger.info(
             "RiskManager initialized",
@@ -226,3 +227,42 @@ class RiskManager:
             "current_exposure": float(self._current_exposure),
             "open_trades": self._open_trades,
         }
+
+    def add_favorite_position(self, position: dict) -> None:
+        """Add a favorite position to the risk manager."""
+        self._favorite_positions.append(position)
+        self.open_exposure(Decimal(str(position["size_usd"])))
+
+    def update_favorite_position(self, market_id: str, current_price: Decimal, current_bid: Decimal) -> None:
+        """Update a favorite position and check for TP/SL."""
+        for pos in self._favorite_positions:
+            if pos["market_id"] == market_id:
+                pos["current_price"] = float(current_price)
+                pos["unrealized_pnl_pct"] = float((current_price - Decimal(str(pos["entry_price"]))) / Decimal(str(pos["entry_price"])) * 100)
+
+                # Check for take profit
+                if current_price >= Decimal(str(pos["take_profit_price"])):
+                    pos["action"] = "TAKE_PROFIT"
+                    self.close_exposure(Decimal(str(pos["size_usd"])))
+                    return
+
+                # Check for stop loss (using bid price)
+                if current_bid <= Decimal(str(pos["stop_loss_price"])):
+                    pos["action"] = "STOP_LOSS"
+                    self.close_exposure(Decimal(str(pos["size_usd"])))
+                    return
+
+                # Time-based exit: < 1h to resolution, in profit
+                elapsed_h = (time.time() - pos["entry_time"]) / 3600
+                remaining_h = pos["time_to_resolution_h"] - elapsed_h
+                if remaining_h <= 1 and current_price > Decimal(str(pos["entry_price"])):
+                    pos["action"] = "TAKE_PROFIT"
+                    self.close_exposure(Decimal(str(pos["size_usd"])))
+                    return
+
+                pos["action"] = "HOLD"
+                return
+
+    def get_favorite_positions(self) -> list:
+        """Get all favorite positions."""
+        return self._favorite_positions
