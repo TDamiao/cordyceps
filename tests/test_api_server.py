@@ -1,4 +1,7 @@
-"""Tests for the FastAPI API server and orchestration entrypoint."""
+"""Tests for the FastAPI API server and orchestration entrypoint.
+
+Updated for token-based auth (no more auto-arm-live).
+"""
 
 from __future__ import annotations
 
@@ -7,10 +10,9 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# Fake bot / scanner / paper engine used by tests
-# ---------------------------------------------------------------------------
+from fastapi import HTTPException
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse
 
 
 class _FakeBot:
@@ -61,11 +63,6 @@ class _FakePaperEngine:
         self.total_profit = 0.12
 
 
-# ---------------------------------------------------------------------------
-# Fixture: import the api_server module with a controlled env
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def api_module(monkeypatch):
     """Import src.api_server with a controlled environment."""
@@ -76,55 +73,6 @@ def api_module(monkeypatch):
 
     mod = importlib.import_module("src.api_server")
     return mod
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_auto_arm_live_after_readiness(api_module, monkeypatch):
-    class Runtime:
-        def __init__(self):
-            self.settings = SimpleNamespace(
-                trading_mode="live", live_trading_enabled=True
-            )
-            self.armed = False
-
-        def arm(self):
-            self.armed = True
-
-    class Readiness:
-        async def check(self, force=False):
-            assert force is True
-            return {"ready": True, "checks": {}}
-
-    runtime = Runtime()
-    monkeypatch.setattr(api_module, "_runtime", runtime)
-    monkeypatch.setattr(api_module, "_readiness", Readiness())
-
-    await api_module._auto_arm_live()
-
-    assert runtime.armed is True
-
-
-@pytest.mark.asyncio
-async def test_auto_arm_is_disabled_outside_live_mode(api_module, monkeypatch):
-    class Readiness:
-        async def check(self, force=False):
-            raise AssertionError("readiness must not run in paper mode")
-
-    runtime = SimpleNamespace(
-        settings=SimpleNamespace(trading_mode="paper", live_trading_enabled=True),
-        armed=False,
-    )
-    monkeypatch.setattr(api_module, "_runtime", runtime)
-    monkeypatch.setattr(api_module, "_readiness", Readiness())
-
-    await api_module._auto_arm_live()
-
-    assert runtime.armed is False
 
 
 @pytest.mark.asyncio
@@ -138,10 +86,12 @@ async def test_health_reports_mode_database_and_websocket(api_module, monkeypatc
     payload = await api_module.health_endpoint()
 
     assert payload["mode"] == "paper"
-    # Never expose a DATABASE_URL because it commonly embeds PostgreSQL credentials.
     assert payload["database"] == "configured"
     assert payload["websocket"]["connected"] is True
     assert payload["scanner"]["running"] is True
+    assert payload["scanner"]["tracked_markets"] == 2
+    assert payload["paper_engine"]["trade_count"] == 3
+    assert payload["paper_engine"]["total_profit"] == pytest.approx(0.12)
 
 
 @pytest.mark.asyncio
@@ -179,31 +129,20 @@ async def test_lifespan_creates_single_bot_and_shuts_down(api_module, monkeypatc
     monkeypatch.setattr(api_module, "create_paper_engine", fake_create_paper)
     monkeypatch.setattr(api_module, "create_scanner", fake_create_scanner)
 
-    # Reset module state
     monkeypatch.setattr(api_module, "_bot", None)
     monkeypatch.setattr(api_module, "_scanner", None)
     monkeypatch.setattr(api_module, "_paper_engine", None)
     monkeypatch.setattr(api_module, "_startup_ts", None)
 
-    # Enter and exit the lifespan context
-    from contextlib import asynccontextmanager
-
-    @asynccontextmanager
-    async def noop_lifespan(app):
-        yield
-
-    # Use the actual lifespan function
     async with api_module.lifespan(api_module.app):
         assert api_module._bot is created_bots[0]
         assert api_module._scanner is not None
         assert api_module._paper_engine is created_papers[0]
         assert len(created_bots) == 1
 
-        # Health should work during lifespan
         payload = await api_module.health_endpoint()
         assert payload["mode"] == "paper"
 
-    # After exiting lifespan: bot stopped, globals cleared
     assert created_bots[0].stopped is True
     assert api_module._bot is None
     assert api_module._scanner is None

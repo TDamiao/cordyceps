@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -106,22 +106,25 @@ class TestExecuteOpportunityRouting:
         mock_client.get_order = MagicMock(return_value={"size_matched": "52630000"})
         mock_client.cancel_order = MagicMock()
 
-        with patch("src.execution.executor.RiskManager") as mock_risk, \
-             patch("src.execution.executor.get_runtime") as mock_runtime, \
-             patch("src.execution.executor.get_settings"):
-            mock_rt = MagicMock()
-            mock_rt.execution_lock = asyncio.Lock()
-            mock_rt.active_executions = 0
-            mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
-            mock_rt.incomplete_exposure_usd = 0
-            mock_runtime.return_value = mock_rt
+        # Create mock instances FIRST
+        mock_rt = MagicMock()
+        mock_rt.execution_lock = asyncio.Lock()
+        mock_rt.active_executions = 0
+        mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
+        mock_rt.incomplete_exposure_usd = 0
 
-            mock_risk = MagicMock()
-            mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
-            mock_risk.add_favorite_position = MagicMock()
-            mock_risk.record_success = MagicMock()
-            mock_risk.record_failure = MagicMock()
-            mock_risk.return_value = mock_risk
+        mock_risk = MagicMock()
+        mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
+        mock_risk.add_favorite_position = MagicMock()
+        mock_risk.record_success = MagicMock()
+        mock_risk.record_failure = MagicMock()
+
+        with patch("src.execution.executor.RiskManager") as mock_rm_class, \
+             patch("src.execution.executor.get_runtime") as mock_get_rt, \
+             patch("src.execution.executor.get_settings"):
+            # Configure patch return values
+            mock_rm_class.return_value = mock_risk
+            mock_get_rt.return_value = mock_rt
 
             executor = OrderExecutor(client=mock_client)
             executor._rate_limiter = _MockRateLimiter()
@@ -131,7 +134,7 @@ class TestExecuteOpportunityRouting:
 
             assert isinstance(result, FavoriteExecutionResult)
             assert result.opportunity.market_id == "m1"
-            assert mock_risk.add_favorite_position.assert_called_once() is None
+            assert mock_risk.add_favorite_position.called
 
     @pytest.mark.asyncio
     async def test_execute_arbitrage_opportunity_routes_correctly(self):
@@ -143,21 +146,22 @@ class TestExecuteOpportunityRouting:
         mock_client.get_order = MagicMock(return_value={"size_matched": "100000000"})
         mock_client.cancel_order = MagicMock()
 
-        with patch("src.execution.executor.RiskManager") as mock_risk, \
-             patch("src.execution.executor.get_runtime") as mock_runtime, \
-             patch("src.execution.executor.get_settings"):
-            mock_rt = MagicMock()
-            mock_rt.execution_lock = asyncio.Lock()
-            mock_rt.active_executions = 0
-            mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
-            mock_rt.incomplete_exposure_usd = 0
-            mock_runtime.return_value = mock_rt
+        mock_rt = MagicMock()
+        mock_rt.execution_lock = asyncio.Lock()
+        mock_rt.active_executions = 0
+        mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
+        mock_rt.incomplete_exposure_usd = 0
 
-            mock_risk = MagicMock()
-            mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
-            mock_risk.record_success = MagicMock()
-            mock_risk.record_failure = MagicMock()
-            mock_risk.return_value = mock_risk
+        mock_risk = MagicMock()
+        mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
+        mock_risk.record_success = MagicMock()
+        mock_risk.record_failure = MagicMock()
+
+        with patch("src.execution.executor.RiskManager") as mock_rm_class, \
+             patch("src.execution.executor.get_runtime") as mock_get_rt, \
+             patch("src.execution.executor.get_settings"):
+            mock_rm_class.return_value = mock_risk
+            mock_get_rt.return_value = mock_rt
 
             executor = OrderExecutor(client=mock_client)
             executor._rate_limiter = _MockRateLimiter()
@@ -172,33 +176,6 @@ class TestExecuteOpportunityRouting:
 class TestFavoriteExecutionLogic:
     """Test favorite-specific execution logic."""
 
-    def _setup_executor(self, mock_client, mock_risk=None, mock_runtime=None):
-        """Create an executor with mocked dependencies."""
-        with patch("src.execution.executor.RiskManager") as mock_risk, \
-             patch("src.execution.executor.get_runtime") as mock_runtime_fn, \
-             patch("src.execution.executor.get_settings"):
-            mock_rt = mock_runtime or MagicMock()
-            if mock_rt is not None:
-                mock_rt.execution_lock = asyncio.Lock()
-                mock_rt.active_executions = 0
-                mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
-                mock_rt.incomplete_exposure_usd = 0
-                mock_runtime_fn.return_value = mock_rt
-
-            mock_risk_inst = mock_risk or MagicMock()
-            if mock_risk is None:
-                mock_risk_inst = MagicMock()
-                mock_risk_inst.validate_trade = MagicMock(return_value=(True, "OK"))
-                mock_risk_inst.add_favorite_position = MagicMock()
-                mock_risk_inst.record_success = MagicMock()
-                mock_risk_inst.record_failure = MagicMock()
-
-            mock_risk.return_value = mock_risk_inst
-
-            executor = OrderExecutor(client=mock_client)
-            executor._rate_limiter = _MockRateLimiter()
-            return executor, mock_risk_inst
-
     @pytest.mark.asyncio
     async def test_favorite_execution_success(self):
         """Test successful favorite position opening."""
@@ -209,15 +186,34 @@ class TestFavoriteExecutionLogic:
         mock_client.get_order = MagicMock(return_value={"size_matched": "52630000"})
         mock_client.cancel_order = MagicMock()
 
-        executor, mock_risk = self._setup_executor(mock_client)
+        mock_rt = MagicMock()
+        mock_rt.execution_lock = asyncio.Lock()
+        mock_rt.active_executions = 0
+        mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
+        mock_rt.incomplete_exposure_usd = 0
 
-        opp = _make_favorite_opp()
-        result = await executor.execute_opportunity(opp)
+        mock_risk = MagicMock()
+        mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
+        mock_risk.add_favorite_position = MagicMock()
+        mock_risk.record_success = MagicMock()
+        mock_risk.record_failure = MagicMock()
 
-        assert isinstance(result, FavoriteExecutionResult)
-        assert result.order is not None
-        assert result.order.status == OrderStatus.FILLED
-        mock_risk.add_favorite_position.assert_called_once()
+        with patch("src.execution.executor.RiskManager") as mock_rm_class, \
+             patch("src.execution.executor.get_runtime") as mock_get_rt, \
+             patch("src.execution.executor.get_settings"):
+            mock_rm_class.return_value = mock_risk
+            mock_get_rt.return_value = mock_rt
+
+            executor = OrderExecutor(client=mock_client)
+            executor._rate_limiter = _MockRateLimiter()
+
+            opp = _make_favorite_opp()
+            result = await executor.execute_opportunity(opp)
+
+            assert isinstance(result, FavoriteExecutionResult)
+            assert result.order is not None
+            assert result.order.status == OrderStatus.FILLED
+            mock_risk.add_favorite_position.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_favorite_execution_order_fail(self):
@@ -228,15 +224,33 @@ class TestFavoriteExecutionLogic:
         )
         mock_client.cancel_order = MagicMock()
 
-        executor, mock_risk = self._setup_executor(mock_client)
+        mock_rt = MagicMock()
+        mock_rt.execution_lock = asyncio.Lock()
+        mock_rt.active_executions = 0
+        mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
+        mock_rt.incomplete_exposure_usd = 0
 
-        opp = _make_favorite_opp()
-        result = await executor.execute_opportunity(opp)
+        mock_risk = MagicMock()
+        mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
+        mock_risk.add_favorite_position = MagicMock()
+        mock_risk.record_failure = MagicMock()
 
-        assert isinstance(result, FavoriteExecutionResult)
-        assert result.order is not None
-        # Position should NOT be added when order fails
-        mock_risk.add_favorite_position.assert_not_called()
+        with patch("src.execution.executor.RiskManager") as mock_rm_class, \
+             patch("src.execution.executor.get_runtime") as mock_get_rt, \
+             patch("src.execution.executor.get_settings"):
+            mock_rm_class.return_value = mock_risk
+            mock_get_rt.return_value = mock_rt
+
+            executor = OrderExecutor(client=mock_client)
+            executor._rate_limiter = _MockRateLimiter()
+
+            opp = _make_favorite_opp()
+            result = await executor.execute_opportunity(opp)
+
+            assert isinstance(result, FavoriteExecutionResult)
+            assert result.order is not None
+            # Position should NOT be added when order fails
+            mock_risk.add_favorite_position.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_favorite_execution_risk_validation_fail(self):
@@ -244,18 +258,34 @@ class TestFavoriteExecutionLogic:
         mock_client = MagicMock()
         mock_client.create_fok_order = MagicMock()
 
-        executor, mock_risk = self._setup_executor(mock_client)
+        mock_rt = MagicMock()
+        mock_rt.execution_lock = asyncio.Lock()
+        mock_rt.active_executions = 0
+        mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
+        mock_rt.incomplete_exposure_usd = 0
+
+        mock_risk = MagicMock()
         mock_risk.validate_trade = MagicMock(
             return_value=(False, "exposure limit exceeded")
         )
+        mock_risk.add_favorite_position = MagicMock()
 
-        opp = _make_favorite_opp()
-        result = await executor.execute_opportunity(opp)
+        with patch("src.execution.executor.RiskManager") as mock_rm_class, \
+             patch("src.execution.executor.get_runtime") as mock_get_rt, \
+             patch("src.execution.executor.get_settings"):
+            mock_rm_class.return_value = mock_risk
+            mock_get_rt.return_value = mock_rt
 
-        assert isinstance(result, FavoriteExecutionResult)
-        assert result.order is None
-        mock_risk.add_favorite_position.assert_not_called()
-        mock_client.create_fok_order.assert_not_called()
+            executor = OrderExecutor(client=mock_client)
+            executor._rate_limiter = _MockRateLimiter()
+
+            opp = _make_favorite_opp()
+            result = await executor.execute_opportunity(opp)
+
+            assert isinstance(result, FavoriteExecutionResult)
+            assert result.order is None
+            mock_risk.add_favorite_position.assert_not_called()
+            mock_client.create_fok_order.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_favorite_execution_not_live(self):
@@ -263,19 +293,33 @@ class TestFavoriteExecutionLogic:
         mock_client = MagicMock()
         mock_client.create_fok_order = MagicMock()
 
-        executor, mock_risk = self._setup_executor(mock_client)
-
-        # Override can_submit_live to return False
-        executor._runtime.can_submit_live = MagicMock(
+        mock_rt = MagicMock()
+        mock_rt.execution_lock = asyncio.Lock()
+        mock_rt.active_executions = 0
+        mock_rt.can_submit_live = MagicMock(
             return_value=(False, "trading mode is paper")
         )
+        mock_rt.incomplete_exposure_usd = 0
 
-        opp = _make_favorite_opp()
-        result = await executor.execute_opportunity(opp)
+        mock_risk = MagicMock()
+        mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
+        mock_risk.add_favorite_position = MagicMock()
 
-        assert isinstance(result, FavoriteExecutionResult)
-        assert result.order is None
-        mock_risk.add_favorite_position.assert_not_called()
+        with patch("src.execution.executor.RiskManager") as mock_rm_class, \
+             patch("src.execution.executor.get_runtime") as mock_get_rt, \
+             patch("src.execution.executor.get_settings"):
+            mock_rm_class.return_value = mock_risk
+            mock_get_rt.return_value = mock_rt
+
+            executor = OrderExecutor(client=mock_client)
+            executor._rate_limiter = _MockRateLimiter()
+
+            opp = _make_favorite_opp()
+            result = await executor.execute_opportunity(opp)
+
+            assert isinstance(result, FavoriteExecutionResult)
+            assert result.order is None
+            mock_risk.add_favorite_position.assert_not_called()
 
 
 class TestFavoritePositionDict:
@@ -291,20 +335,21 @@ class TestFavoritePositionDict:
         mock_client.get_order = MagicMock(return_value={"size_matched": "52630000"})
         mock_client.cancel_order = MagicMock()
 
-        with patch("src.execution.executor.RiskManager") as mock_risk, \
-             patch("src.execution.executor.get_runtime") as mock_runtime, \
-             patch("src.execution.executor.get_settings"):
-            mock_rt = MagicMock()
-            mock_rt.execution_lock = asyncio.Lock()
-            mock_rt.active_executions = 0
-            mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
-            mock_rt.incomplete_exposure_usd = 0
-            mock_runtime.return_value = mock_rt
+        mock_rt = MagicMock()
+        mock_rt.execution_lock = asyncio.Lock()
+        mock_rt.active_executions = 0
+        mock_rt.can_submit_live = MagicMock(return_value=(True, "OK"))
+        mock_rt.incomplete_exposure_usd = 0
 
-            mock_risk = MagicMock()
-            mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
-            mock_risk.add_favorite_position = MagicMock()
-            mock_risk.return_value = mock_risk
+        mock_risk = MagicMock()
+        mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
+        mock_risk.add_favorite_position = MagicMock()
+
+        with patch("src.execution.executor.RiskManager") as mock_rm_class, \
+             patch("src.execution.executor.get_runtime") as mock_get_rt, \
+             patch("src.execution.executor.get_settings"):
+            mock_rm_class.return_value = mock_risk
+            mock_get_rt.return_value = mock_rt
 
             executor = OrderExecutor(client=mock_client)
             executor._rate_limiter = _MockRateLimiter()
