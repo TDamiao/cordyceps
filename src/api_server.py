@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import html
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
-from fastapi import Body, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+import aiohttp
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import desc
 from sqlmodel import Session, select
@@ -46,20 +51,7 @@ _geoblock: GeoblockService | None = None
 _wallet: WalletService | None = None
 _readiness: ReadinessService | None = None
 _startup_ts: float | None = None
-
-
-def _send_kill_switch_notification(reason: str, activated: bool = True) -> None:
-    """Fire-and-forget kill switch notification."""
-    try:
-        from src.notifications.telegram import get_notifier
-        notifier = get_notifier()
-        if notifier and notifier.config.enabled:
-            asyncio.create_task(notifier.notify_risk_event(
-                event_type="KILL_SWITCH",
-                message=f"Kill switch {'activated' if activated else 'deactivated'}: {reason}",
-            ))
-    except (ImportError, Exception):
-        pass
+_auto_arm_task: asyncio.Task[None] | None = None
 
 
 def create_bot() -> ArbitrageBot:
@@ -80,9 +72,40 @@ def create_scanner(observer: Any = None, fetcher: Any = None) -> Scanner:
     )
 
 
+async def _auto_arm_live() -> None:
+    """Arm live execution after startup as soon as every readiness check passes."""
+    runtime = _runtime
+    readiness = _readiness
+    if runtime is None or readiness is None:
+        return
+    if runtime.settings.trading_mode not in {"live_test", "live"}:
+        return
+    if not runtime.settings.live_trading_enabled:
+        return
+
+    while _runtime is runtime:
+        try:
+            result = await readiness.check(force=True)
+            if result["ready"]:
+                runtime.arm()
+                logger.warning("live.auto_armed", mode=runtime.settings.trading_mode)
+                return
+            blocked = [
+                name
+                for name, check in result.get("checks", {}).items()
+                if check.get("status") != "ok"
+            ]
+            logger.warning("live.auto_arm_waiting", blocked=blocked)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("live.auto_arm_failed", error=str(exc))
+        await asyncio.sleep(10)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _admin, _bot, _geoblock, _paper_engine, _readiness, _runtime, _scanner, _startup_ts, _wallet
+    global _admin, _auto_arm_task, _bot, _geoblock, _paper_engine, _readiness, _runtime, _scanner, _startup_ts, _wallet
 
     _startup_ts = time.time()
     reset_runtime()
@@ -92,7 +115,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _paper_engine = create_paper_engine()
     _bot = create_bot()
     bot_task = asyncio.create_task(_bot.start(), name="cordyceps-bot")
-    await asyncio.sleep(0.05)
+    # The observer is created during bot initialization.  Do not let the
+    # scanner start with ``observer=None``: in that state it can cache markets
+    # but cannot subscribe their tokens to the CLOB WebSocket, leaving every
+    # downstream page empty.  A short bounded wait handles slow auth/network
+    # initialization while still allowing startup to continue on failure.
+    for _ in range(40):
+        if getattr(_bot, "_observer", None) is not None:
+            break
+        await asyncio.sleep(0.05)
     _scanner = create_scanner(
         observer=getattr(_bot, "_observer", None), fetcher=getattr(_bot, "_fetcher", None)
     )
@@ -100,30 +131,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _geoblock = GeoblockService(_runtime.settings)
     _wallet = WalletService(_runtime.settings, getattr(_bot, "_client", None))
     _readiness = ReadinessService(_runtime, _geoblock, _wallet, _bot)
-
-    # Send startup notification
-    try:
-        from src.notifications.telegram import init_notifications
-        await init_notifications()
-    except Exception as exc:
-        logger.warning("telegram_startup_notification_failed", error=str(exc))
-
+    _auto_arm_task = asyncio.create_task(_auto_arm_live(), name="cordyceps-auto-arm-live")
     logger.info(
         "orchestrator.started", port=_runtime.settings.port, mode=_runtime.settings.trading_mode
     )
     try:
         yield
     finally:
-        # Send shutdown notification
-        try:
-            from src.notifications.telegram import get_notifier, shutdown_notifications
-            notifier = get_notifier()
-            if notifier and notifier.config.enabled:
-                await notifier.notify_shutdown("Server shutting down")
-            await shutdown_notifications()
-        except Exception as exc:
-            logger.warning("telegram_shutdown_notification_failed", error=str(exc))
-
+        if _auto_arm_task:
+            _auto_arm_task.cancel()
+            await asyncio.gather(_auto_arm_task, return_exceptions=True)
+            _auto_arm_task = None
         if _runtime:
             _runtime.disarm()
         if _scanner:
@@ -156,30 +174,126 @@ def _token_ids() -> list[str]:
     return _bot._observer.state.get_all_tracked_tokens()
 
 
+def _login_html(error: str = "") -> str:
+    settings = _runtime.settings if _runtime else get_settings()
+    configured = bool(settings.github_client_id and settings.github_key)
+    notice = f'<p class="login-error">{html.escape(error)}</p>' if error else ""
+    if configured:
+        action = '<a class="github-button" href="/auth/github">Continuar com GitHub</a>'
+    else:
+        missing = []
+        if not settings.github_client_id:
+            missing.append("GITHUB_CLIENT_ID")
+        if not settings.github_key:
+            missing.append("github_key")
+        missing_text = ", ".join(missing)
+        action = f'<button class="github-button" disabled>Falta configurar: {missing_text}</button>'
+    return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <title>Cordyceps — Login</title><link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"></head>
+    <body class="login"><main class="login-card">
+      <img src="/assets/favicon.svg" width="48" height="48" alt="">
+      <p class="login-eyebrow">ACESSO ADMINISTRATIVO</p><h1>Cordyceps</h1>
+      <p class="login-copy">Entre com a conta GitHub autorizada para acessar o painel.</p>
+      {notice}{action}<p class="login-hint">Apenas @tdamiao tem acesso.</p>
+    </main></body></html>"""
+
+
+async def _github_identity(code: str, verifier: str) -> str:
+    settings = _runtime.settings
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        async with session.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": settings.github_client_id,
+                "client_secret": settings.github_key,
+                "code": code,
+                "redirect_uri": settings.github_redirect_uri,
+                "code_verifier": verifier,
+            },
+        ) as response:
+            token_payload = await response.json(content_type=None)
+            if response.status != 200 or not token_payload.get("access_token"):
+                logger.warning("github.oauth_token_failed", status=response.status)
+                raise HTTPException(status_code=401, detail="GitHub authentication failed")
+        async with session.get(
+            "https://api.github.com/user",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token_payload['access_token']}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        ) as response:
+            profile = await response.json(content_type=None)
+            if response.status != 200 or not profile.get("login"):
+                logger.warning("github.user_lookup_failed", status=response.status)
+                raise HTTPException(status_code=401, detail="Could not verify GitHub user")
+            return str(profile["login"])
+
+
 @app.get("/login", response_class=HTMLResponse)
-async def login_page() -> str:
-    return """<!doctype html><html><head><meta name=viewport content='width=device-width'>
-    <title>Cordyceps Admin</title><link rel=stylesheet href=/assets/dashboard.css></head>
-    <body class=login><form method=post><h1>CORDYCEPS</h1><p>Administrative access</p>
-    <input name=token type=password autocomplete=current-password placeholder='ADMIN_TOKEN' required>
-    <button type=submit>Authenticate</button></form></body></html>"""
-
-
-@app.post("/login")
-async def login(request: Request, token: str = Form(...)) -> RedirectResponse:
+async def login_page(
+    request: Request, code: str = "", state: str = "", error: str = ""
+) -> Response:
     if _admin is None:
         raise HTTPException(status_code=503, detail="Application is starting")
-    session_id = _admin.login(token)
+    if error:
+        return HTMLResponse(_login_html("Login cancelado ou negado pelo GitHub."), status_code=401)
+    if not code:
+        return HTMLResponse(_login_html())
+    try:
+        verifier = _admin.consume_github_state(state)
+        username = await _github_identity(code, verifier)
+    except HTTPException as exc:
+        return HTMLResponse(_login_html(str(exc.detail)), status_code=exc.status_code)
+    if username.casefold() != _runtime.settings.github_allowed_user.casefold():
+        logger.warning("github.user_denied", username=username)
+        return HTMLResponse(_login_html("Esta conta GitHub não está autorizada."), status_code=403)
+    session_id = _admin.create_session()
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(
         "cordyceps_admin",
         session_id,
         httponly=True,
-        secure=request.url.scheme == "https",
-        samesite="strict",
+        secure=_runtime.settings.github_redirect_uri.startswith("https://"),
+        samesite="lax",
         max_age=8 * 3600,
     )
     return response
+
+
+@app.get("/auth/github")
+async def github_login() -> RedirectResponse:
+    if _admin is None:
+        raise HTTPException(status_code=503, detail="Application is starting")
+    settings = _runtime.settings
+    if not _admin.configured:
+        missing = []
+        if not settings.github_client_id:
+            missing.append("GITHUB_CLIENT_ID")
+        if not settings.github_key:
+            missing.append("github_key")
+        raise HTTPException(
+            status_code=503,
+            detail=f"GitHub OAuth is not configured; missing: {', '.join(missing)}",
+        )
+    state, verifier = _admin.begin_github_login()
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=")
+    query = urlencode(
+        {
+            "client_id": settings.github_client_id,
+            "redirect_uri": settings.github_redirect_uri,
+            "state": state,
+            "code_challenge": challenge.decode(),
+            "code_challenge_method": "S256",
+            "allow_signup": "false",
+        }
+    )
+    return RedirectResponse(f"https://github.com/login/oauth/authorize?{query}", status_code=302)
 
 
 @app.post("/logout")
@@ -240,6 +354,18 @@ async def healthcheck_html(request: Request):
     return FileResponse(WEB_DIR / "health.html")
 
 
+@app.get("/config")
+async def config_page(request: Request):
+    """Serve the separate operational configuration page."""
+    try:
+        _require_admin(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return RedirectResponse("/login", status_code=303)
+        raise
+    return FileResponse(WEB_DIR / "config.html")
+
+
 @app.get("/health")
 async def health_endpoint() -> dict[str, Any]:
     settings = _runtime.settings if _runtime else get_settings()
@@ -261,7 +387,11 @@ async def health_endpoint() -> dict[str, Any]:
         },
         "paper_engine": paper,
         "books_with_liquidity": observer.get("books_with_liquidity", 0),
-        "active_markets": status.get("active_markets", 0),
+        "book_updates": observer.get("book_updates", 0),
+        "complete_markets": observer.get("complete_markets", 0),
+        "active_markets": max(
+            status.get("active_markets", 0), len(_scanner._tracked) if _scanner else 0
+        ),
         "uptime": round(time.time() - _startup_ts, 2) if _startup_ts else 0,
     }
 
@@ -300,7 +430,7 @@ async def api_status(request: Request) -> dict[str, Any]:
             "healthy" if status.get("health", {}).get("websocket_connected", False) else "stopped"
         ),
         "scanner": _scanner.is_running if _scanner else False,
-        "markets": status.get("active_markets", 0),
+        "markets": max(status.get("active_markets", 0), len(_scanner._tracked) if _scanner else 0),
         "tokens": observer.get("tracked_tokens", 0),
         "books_with_liquidity": observer.get("books_with_liquidity", 0),
         "book_updates": observer.get("book_updates", 0),
@@ -394,7 +524,6 @@ async def refresh_wallet(request: Request) -> dict[str, Any]:
 async def kill(request: Request) -> dict[str, Any]:
     _require_admin(request)
     _runtime.kill()
-    _send_kill_switch_notification("Activated from dashboard")
     with Session(get_engine(_runtime.settings)) as session:
         add_system_event(
             session, "kill_switch", "Kill switch activated", severity="warning", component="admin"
@@ -406,8 +535,17 @@ async def kill(request: Request) -> dict[str, Any]:
 async def resume(request: Request) -> dict[str, Any]:
     _require_admin(request)
     _runtime.resume()
-    _send_kill_switch_notification("Resumed from dashboard", activated=False)
     return {"kill_switch": False, "armed": False}
+
+
+@app.post("/api/control/reset-circuit-breaker")
+async def reset_circuit_breaker(request: Request) -> dict[str, Any]:
+    _require_admin(request)
+    risk_manager = getattr(_bot, "_risk_manager", None) if _bot else None
+    if risk_manager is None:
+        raise HTTPException(status_code=409, detail="Risk manager is not initialized")
+    risk_manager.reset_circuit_breaker()
+    return {"circuit_breaker": "reset", "risk": risk_manager.state}
 
 
 @app.post("/api/control/arm")
@@ -436,13 +574,20 @@ async def history(request: Request, limit: int = 20) -> dict[str, Any]:
     _require_admin(request)
     limit = max(1, min(limit, 100))
     with Session(get_engine(_runtime.settings)) as session:
+        opportunity_rows = session.exec(
+            select(Opportunity).order_by(desc(Opportunity.timestamp)).limit(limit)
+        ).all()
+        opportunity_payloads = []
+        market_cache = getattr(getattr(_bot, "_fetcher", None), "cache", None)
+        for row in opportunity_rows:
+            payload = row.model_dump(mode="json")
+            market = market_cache.get_market(row.market_id) if market_cache else None
+            if market:
+                payload["market_question"] = market.question
+                payload["market_slug"] = market.slug
+            opportunity_payloads.append(payload)
         return {
-            "opportunities": [
-                row.model_dump(mode="json")
-                for row in session.exec(
-                    select(Opportunity).order_by(desc(Opportunity.timestamp)).limit(limit)
-                ).all()
-            ],
+            "opportunities": opportunity_payloads,
             "executions": [
                 row.model_dump(mode="json")
                 for row in session.exec(
@@ -468,6 +613,38 @@ async def history(request: Request, limit: int = 20) -> dict[str, Any]:
                 ).all()
             ],
         }
+
+
+@app.get("/api/markets")
+async def markets(request: Request) -> dict[str, Any]:
+    """Return markets discovered by the scanner, not only traded markets."""
+    _require_admin(request)
+    fetcher = getattr(_bot, "_fetcher", None) if _bot else None
+    rows = fetcher.get_all_cached_markets() if fetcher else []
+    # Keep the markets page useful during a slow/restarting scanner.  Gamma is
+    # public metadata; a direct refresh also repopulates the same cache used by
+    # the scanner and avoids presenting a misleading empty dashboard.
+    if fetcher and not rows:
+        try:
+            rows = await fetcher.fetch_markets(active_only=True, binary_only=True, limit=100)
+        except Exception as exc:  # pragma: no cover - defensive network path
+            logger.warning("markets.direct_refresh_failed", error=str(exc))
+    return {
+        "markets": [
+            {
+                "condition_id": row.condition_id,
+                "question": row.question,
+                "slug": row.slug,
+                "outcomes": [token.outcome for token in row.tokens],
+                "token_ids": row.token_ids,
+                "active": row.active,
+                "closed": row.closed,
+                "neg_risk": row.neg_risk,
+                "end_date": row.end_date,
+            }
+            for row in rows
+        ]
+    }
 
 
 def run_server(port: int | None = None) -> None:

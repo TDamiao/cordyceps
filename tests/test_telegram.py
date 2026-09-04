@@ -49,9 +49,7 @@ class TestTelegramConfig:
         """Config should be disabled with only token or only chat_id."""
         from src.notifications.telegram import TelegramConfig
 
-        with patch.dict(
-            "os.environ", {"TELEGRAM_BOT_TOKEN": "test_token_123"}, clear=True
-        ):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": "test_token_123"}, clear=True):
             with patch(
                 "src.notifications.telegram.get_settings",
                 return_value=MagicMock(telegram_bot_token="", telegram_chat_id=""),
@@ -418,6 +416,7 @@ class TestGlobalNotifier:
         # Clear any existing instance
         import src.notifications.telegram as tn_module
         from src.notifications.telegram import get_notifier
+
         tn_module._notifier = None
 
         notifier = get_notifier()
@@ -442,6 +441,7 @@ class TestGlobalNotifier:
         """init_notifications should send startup message if enabled."""
         import src.notifications.telegram as tn_module
         from src.notifications.telegram import init_notifications
+
         tn_module._notifier = None
 
         with patch.dict(

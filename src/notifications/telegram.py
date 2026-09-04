@@ -24,6 +24,7 @@ logger = get_logger(__name__)
 @dataclass
 class TelegramConfig:
     """Telegram bot configuration."""
+
     bot_token: str
     chat_id: str
     enabled: bool = True
@@ -40,11 +41,7 @@ class TelegramConfig:
         if not chat_id:
             chat_id = getattr(settings, "telegram_chat_id", "")
 
-        return cls(
-            bot_token=bot_token,
-            chat_id=chat_id,
-            enabled=bool(bot_token and chat_id)
-        )
+        return cls(bot_token=bot_token, chat_id=chat_id, enabled=bool(bot_token and chat_id))
 
 
 class TelegramNotifier:
@@ -58,9 +55,7 @@ class TelegramNotifier:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=10)
-            )
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
         return self._session
 
     async def close(self):
@@ -268,10 +263,7 @@ class TelegramNotifier:
         limit: str | None = None,
     ) -> bool:
         """Notify risk management event."""
-        text = (
-            f"🛡 <b>Evento de Risco: {event_type}</b>\n\n"
-            f"📝 <b>Mensagem:</b> {message}\n"
-        )
+        text = f"🛡 <b>Evento de Risco: {event_type}</b>\n\n" f"📝 <b>Mensagem:</b> {message}\n"
         if current_value:
             text += f"📊 <b>Valor Atual:</b> {current_value}\n"
         if limit:

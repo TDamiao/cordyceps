@@ -87,9 +87,7 @@ def api_module(monkeypatch):
 async def test_auto_arm_live_after_readiness(api_module, monkeypatch):
     class Runtime:
         def __init__(self):
-            self.settings = SimpleNamespace(
-                trading_mode="live", live_trading_enabled=True
-            )
+            self.settings = SimpleNamespace(trading_mode="live", live_trading_enabled=True)
             self.armed = False
 
         def arm(self):

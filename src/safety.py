@@ -23,11 +23,13 @@ logger = structlog.get_logger(__name__)
 # Lazy import to avoid circular dependency
 _notifier = None
 
+
 def _get_notifier():
     global _notifier
     if _notifier is None:
         try:
             from src.notifications.telegram import get_notifier as _get_telegram_notifier
+
             _notifier = _get_telegram_notifier()
         except (ImportError, Exception):
             pass
