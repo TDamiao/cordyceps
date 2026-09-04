@@ -53,7 +53,7 @@ Após a reformulação das taxas em março de 2026, esta estratégia tornou-se *
 | **Win Rate** | 85-95% | ~100% (se executado) | 60-70% |
 | **Fee Sensitivity** | Muito Baixa | Muito Alta | Baixa |
 | **Automação Potential** | Alta | Alta | Média |
-| **Capital Efficiency** | Alta | Baixa (requere hedge) | Média |
+| **Capital Efficiency** | Alta | Baixa | Média |
 | **Psychological Load** | Baixa (poucos losses) | Muito Baixa | Alta (frequentes losses contra-intuitivos) |
 | **Execution Window** | Horas a dias | Minutos | Minutos a horas |
 
@@ -62,6 +62,7 @@ Após a reformulação das taxas em março de 2026, esta estratégia tornou-se *
 #### 1. Filtros de Mercado Adicionais
 ```python
 # Em src/engine/detector.py ou novo módulo
+
 def is_favorite_compounding_candidate(opportunity: ArbitrageOpportunity) -> bool:
     """Verifica se oportunidade se encaixa na estratégia de favorite compounding"""
     
@@ -92,6 +93,7 @@ def is_favorite_compounding_candidate(opportunity: ArbitrageOpportunity) -> bool
 #### 2. Modificação na Lógica de Entrada
 ```python
 # Em src/execution/order_executor.py ou similar
+
 async def execute_opportunity(self, opportunity: ArbitrageOpportunity):
     # Verificar se é candidato a favorite compounding
     if self._is_favorite_strategy_enabled and \
@@ -111,6 +113,7 @@ async def execute_opportunity(self, opportunity: ArbitrageOpportunity):
 #### 3. Gestão de Posição
 ```python
 # Manter posição até resolução ou saída antecipada por take profit
+
 async def monitor_favorite_position(self, position: Position):
     # Verificar condições de saída antecipada
     current_price = await self._get_current_market_price(position.market_id)
@@ -159,6 +162,7 @@ A estratégia deve operar dentro dos limites existentes:
 
 ```python
 # Em src/risk/manager.py
+
 def calculate_favorite_position_size(self, opportunity: ArbitrageOpportunity) -> float:
     """Calcula tamanho de posição otimizado para favorite compounding"""
     

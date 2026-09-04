@@ -48,6 +48,20 @@ _readiness: ReadinessService | None = None
 _startup_ts: float | None = None
 
 
+def _send_kill_switch_notification(reason: str, activated: bool = True) -> None:
+    """Fire-and-forget kill switch notification."""
+    try:
+        from src.notifications.telegram import get_notifier
+        notifier = get_notifier()
+        if notifier and notifier.config.enabled:
+            asyncio.create_task(notifier.notify_risk_event(
+                event_type="KILL_SWITCH",
+                message=f"Kill switch {'activated' if activated else 'deactivated'}: {reason}",
+            ))
+    except (ImportError, Exception):
+        pass
+
+
 def create_bot() -> ArbitrageBot:
     return ArbitrageBot(runtime=_runtime, paper_engine=_paper_engine)
 
@@ -86,12 +100,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _geoblock = GeoblockService(_runtime.settings)
     _wallet = WalletService(_runtime.settings, getattr(_bot, "_client", None))
     _readiness = ReadinessService(_runtime, _geoblock, _wallet, _bot)
+
+    # Send startup notification
+    try:
+        from src.notifications.telegram import init_notifications
+        await init_notifications()
+    except Exception as exc:
+        logger.warning("telegram_startup_notification_failed", error=str(exc))
+
     logger.info(
         "orchestrator.started", port=_runtime.settings.port, mode=_runtime.settings.trading_mode
     )
     try:
         yield
     finally:
+        # Send shutdown notification
+        try:
+            from src.notifications.telegram import shutdown_notifications, get_notifier
+            notifier = get_notifier()
+            if notifier and notifier.config.enabled:
+                await notifier.notify_shutdown("Server shutting down")
+            await shutdown_notifications()
+        except Exception as exc:
+            logger.warning("telegram_shutdown_notification_failed", error=str(exc))
+
         if _runtime:
             _runtime.disarm()
         if _scanner:
@@ -362,6 +394,7 @@ async def refresh_wallet(request: Request) -> dict[str, Any]:
 async def kill(request: Request) -> dict[str, Any]:
     _require_admin(request)
     _runtime.kill()
+    _send_kill_switch_notification("Activated from dashboard")
     with Session(get_engine(_runtime.settings)) as session:
         add_system_event(
             session, "kill_switch", "Kill switch activated", severity="warning", component="admin"
@@ -373,6 +406,7 @@ async def kill(request: Request) -> dict[str, Any]:
 async def resume(request: Request) -> dict[str, Any]:
     _require_admin(request)
     _runtime.resume()
+    _send_kill_switch_notification("Resumed from dashboard", activated=False)
     return {"kill_switch": False, "armed": False}
 
 

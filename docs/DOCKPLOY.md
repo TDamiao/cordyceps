@@ -96,6 +96,40 @@ O restart resultante permanece **disarmed**. No dashboard:
 
 Não adicione `TRADING_MODE=live` nesta fase.
 
+## 5. Profile "Live Test - $10 Wallet" (com Favorite Compounding)
+
+```dotenv
+MAX_TRADE_USD=1
+MAX_TOTAL_EXPOSURE_USD=2
+MAX_DAILY_LOSS_USD=1
+MAX_OPEN_TRADES=1
+MAX_LEG_IMBALANCE_USD=1
+LEG_TIMEOUT_MS=2000
+MIN_NET_EDGE=0.01
+MIN_NET_PROFIT_USD=0.01
+MAX_SLIPPAGE_PCT=0.005
+ORDERBOOK_STALE_MS=3000
+CIRCUIT_BREAKER_FAILURE_THRESHOLD=3
+CIRCUIT_BREAKER_COOLDOWN_MINUTES=15
+
+# --- Favorite Compounding Strategy ---
+ENABLE_FAVORITE_STRATEGY=true
+MIN_FAVORITE_PROBABILITY=0.90
+MIN_FAVORITE_PRICE=0.85
+MAX_FAVORITE_PRICE=0.98
+MIN_FAVORITE_SIZE_USD=5.0
+FAVORITE_TAKE_PROFIT=0.97
+FAVORITE_STOP_LOSS=0.80
+MAX_FAVORITE_EXPOSURE_PCT=0.30
+FAVORITE_KELLY_FRACTION=0.25
+
+# --- Telegram Notifications ---
+TELEGRAM_BOT_TOKEN=<seu_bot_token>
+TELEGRAM_CHAT_ID=<seu_chat_id>
+```
+
+US$ 10 é o saldo da wallet, não o tamanho de uma operação. O profile limita cada oportunidade de arbitrage a US$ 1 e exposição total a US$ 2. A estratégia Favorite pode usar até 30% do capital (MAX_FAVORITE_EXPOSURE_PCT). Esses parâmetros e os demais itens de Risk & Strategy são validados e persistidos em `runtime_config`; alterações no painel não exigem restart.
+
 ## Variáveis que devem ser secrets no Dokploy
 
 - `ADMIN_TOKEN`
@@ -104,6 +138,8 @@ Não adicione `TRADING_MODE=live` nesta fase.
 - `CLOB_API_SECRET`
 - `CLOB_API_PASSPHRASE`
 - `CLOB_API_KEY` (trate como credencial, embora não seja chave de assinatura)
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
 
 Nenhum desses valores aparece no dashboard. `PRIVATE_KEY` nunca é persistida no PostgreSQL.
 
