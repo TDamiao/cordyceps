@@ -45,7 +45,12 @@ class TestFavoriteIntegration:
     """Integration tests for favorite compounding strategy."""
 
     def _make_order_book(
-        self, token_id: str, bid_price: str, ask_price: str, bid_size: str = "5000", ask_size: str = "5000"
+        self,
+        token_id: str,
+        bid_price: str,
+        ask_price: str,
+        bid_size: str = "5000",
+        ask_size: str = "5000",
     ) -> OrderBook:
         """Create a realistic order book."""
         return OrderBook(
@@ -70,8 +75,12 @@ class TestFavoriteIntegration:
             engine = FavoriteEngine()
 
             books = {
-                "YES": self._make_order_book("YES", "0.945", "0.950", bid_size="10000", ask_size="10000"),
-                "NO": self._make_order_book("NO", "0.045", "0.050", bid_size="10000", ask_size="10000"),
+                "YES": self._make_order_book(
+                    "YES", "0.945", "0.950", bid_size="10000", ask_size="10000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.045", "0.050", bid_size="10000", ask_size="10000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -106,8 +115,12 @@ class TestFavoriteIntegration:
             engine = FavoriteEngine()
 
             books = {
-                "YES": self._make_order_book("YES", "0.925", "0.930", bid_size="8000", ask_size="8000"),
-                "NO": self._make_order_book("NO", "0.065", "0.070", bid_size="8000", ask_size="8000"),
+                "YES": self._make_order_book(
+                    "YES", "0.925", "0.930", bid_size="8000", ask_size="8000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.065", "0.070", bid_size="8000", ask_size="8000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -137,8 +150,12 @@ class TestFavoriteIntegration:
             engine = FavoriteEngine()
 
             books = {
-                "YES": self._make_order_book("YES", "0.955", "0.960", bid_size="6000", ask_size="6000"),
-                "NO": self._make_order_book("NO", "0.035", "0.040", bid_size="6000", ask_size="6000"),
+                "YES": self._make_order_book(
+                    "YES", "0.955", "0.960", bid_size="6000", ask_size="6000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.035", "0.040", bid_size="6000", ask_size="6000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -168,8 +185,12 @@ class TestFavoriteIntegration:
             engine = FavoriteEngine()
 
             books = {
-                "YES": self._make_order_book("YES", "0.795", "0.800", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.195", "0.200", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.795", "0.800", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.195", "0.200", bid_size="5000", ask_size="5000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -196,8 +217,12 @@ class TestFavoriteIntegration:
             engine = FavoriteEngine()
 
             books = {
-                "YES": self._make_order_book("YES", "0.985", "0.990", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.005", "0.010", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.985", "0.990", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.005", "0.010", bid_size="5000", ask_size="5000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -224,8 +249,12 @@ class TestFavoriteIntegration:
             engine = FavoriteEngine()
 
             books = {
-                "YES": self._make_order_book("YES", "0.915", "0.920", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.075", "0.080", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.915", "0.920", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.075", "0.080", bid_size="5000", ask_size="5000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -252,8 +281,12 @@ class TestFavoriteIntegration:
             engine = FavoriteEngine()
 
             books = {
-                "YES": self._make_order_book("YES", "0.875", "0.880", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.115", "0.120", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.875", "0.880", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.115", "0.120", bid_size="5000", ask_size="5000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -310,8 +343,12 @@ class TestFavoriteIntegration:
             # Step 1: Create engine and detect opportunity
             engine = FavoriteEngine()
             books = {
-                "YES": self._make_order_book("YES", "0.945", "0.950", bid_size="10000", ask_size="10000"),
-                "NO": self._make_order_book("NO", "0.045", "0.050", bid_size="10000", ask_size="10000"),
+                "YES": self._make_order_book(
+                    "YES", "0.945", "0.950", bid_size="10000", ask_size="10000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.045", "0.050", bid_size="10000", ask_size="10000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -352,7 +389,8 @@ class TestFavoriteIntegration:
                 expected_payout=opp.position_shares,
                 gross_profit=opp.expected_return_pct * opp.position_size_usd / 100,
                 fees=opp.fees_estimate,
-                net_profit=opp.expected_return_pct * opp.position_size_usd / 100 - opp.fees_estimate,
+                net_profit=opp.expected_return_pct * opp.position_size_usd / 100
+                - opp.fees_estimate,
                 profit_pct=opp.expected_return_pct,
                 executable_quantity=opp.position_shares,
             )
@@ -376,8 +414,12 @@ class TestFavoriteIntegration:
 
             engine = FavoriteEngine()
             books = {
-                "YES": self._make_order_book("YES", "0.945", "0.950", bid_size="10000", ask_size="10000"),
-                "NO": self._make_order_book("NO", "0.045", "0.050", bid_size="10000", ask_size="10000"),
+                "YES": self._make_order_book(
+                    "YES", "0.945", "0.950", bid_size="10000", ask_size="10000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.045", "0.050", bid_size="10000", ask_size="10000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -393,9 +435,9 @@ class TestFavoriteIntegration:
             action = engine.check_position(position, Decimal("0.97"), Decimal("0.96"))
 
             assert action == FavoriteAction.TAKE_PROFIT
-            assert position.unrealized_pnl_pct == (Decimal("0.97") - Decimal("0.950")) / Decimal("0.950") * Decimal(
-                "100"
-            )
+            assert position.unrealized_pnl_pct == (Decimal("0.97") - Decimal("0.950")) / Decimal(
+                "0.950"
+            ) * Decimal("100")
 
     def test_position_monitoring_stop_loss(self):
         """
@@ -408,8 +450,12 @@ class TestFavoriteIntegration:
 
             engine = FavoriteEngine()
             books = {
-                "YES": self._make_order_book("YES", "0.915", "0.920", bid_size="10000", ask_size="10000"),
-                "NO": self._make_order_book("NO", "0.075", "0.080", bid_size="10000", ask_size="10000"),
+                "YES": self._make_order_book(
+                    "YES", "0.915", "0.920", bid_size="10000", ask_size="10000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.075", "0.080", bid_size="10000", ask_size="10000"
+                ),
             }
 
             opp = engine.analyze_market(
@@ -437,40 +483,60 @@ class TestFavoriteIntegration:
 
             # Market 1: Valid favorite (95c)
             books1 = {
-                "YES": self._make_order_book("YES", "0.945", "0.950", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.045", "0.050", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.945", "0.950", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.045", "0.050", bid_size="5000", ask_size="5000"
+                ),
             }
             opp1 = engine.analyze_market("m1", "Q1?", books1, 24.0)
             assert opp1 is not None
 
             # Market 2: Rejected (price too low 80c)
             books2 = {
-                "YES": self._make_order_book("YES", "0.795", "0.800", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.195", "0.200", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.795", "0.800", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.195", "0.200", bid_size="5000", ask_size="5000"
+                ),
             }
             opp2 = engine.analyze_market("m2", "Q2?", books2, 24.0)
             assert opp2 is None
 
             # Market 3: Rejected (time too long)
             books3 = {
-                "YES": self._make_order_book("YES", "0.915", "0.920", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.075", "0.080", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.915", "0.920", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.075", "0.080", bid_size="5000", ask_size="5000"
+                ),
             }
             opp3 = engine.analyze_market("m3", "Q3?", books3, 80.0)
             assert opp3 is None
 
             # Market 4: Valid favorite (92c)
             books4 = {
-                "YES": self._make_order_book("YES", "0.915", "0.920", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.075", "0.080", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.915", "0.920", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.075", "0.080", bid_size="5000", ask_size="5000"
+                ),
             }
             opp4 = engine.analyze_market("m4", "Q4?", books4, 24.0)
             assert opp4 is not None
 
             # Market 5: Rejected (low probability)
             books5 = {
-                "YES": self._make_order_book("YES", "0.875", "0.880", bid_size="5000", ask_size="5000"),
-                "NO": self._make_order_book("NO", "0.115", "0.120", bid_size="5000", ask_size="5000"),
+                "YES": self._make_order_book(
+                    "YES", "0.875", "0.880", bid_size="5000", ask_size="5000"
+                ),
+                "NO": self._make_order_book(
+                    "NO", "0.115", "0.120", bid_size="5000", ask_size="5000"
+                ),
             }
             opp5 = engine.analyze_market("m5", "Q5?", books5, 24.0)
             assert opp5 is None

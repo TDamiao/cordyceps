@@ -39,6 +39,7 @@ def _get_telegram_notifier():
     if _telegram_notifier is None:
         try:
             from src.notifications.telegram import get_notifier
+
             _telegram_notifier = get_notifier()
         except (ImportError, Exception):
             pass
@@ -81,6 +82,7 @@ class OrderResult:
 @dataclass
 class ExecutionResult:
     """Result for arbitrage opportunities (BUY_SET/SELL_SET)."""
+
     opportunity: ArbitrageOpportunity
     execution_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     state: ExecutionState = ExecutionState.DETECTED
@@ -110,6 +112,7 @@ class ExecutionResult:
 @dataclass
 class FavoriteExecutionResult:
     """Result for favorite compounding opportunities."""
+
     opportunity: FavoriteOpportunity
     execution_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     state: ExecutionState = ExecutionState.POSITION_OPEN
@@ -151,6 +154,7 @@ class OrderExecutor:
         # Use provided favorite_engine or create new instance
         if favorite_engine is None:
             from src.engine.favorite import FavoriteEngine as _FavoriteEngine
+
             favorite_engine = _FavoriteEngine()
 
         self._client = client
@@ -167,34 +171,46 @@ class OrderExecutor:
         self._active_state: ExecutionState | None = None
 
     def _send_error_notification(
-        self, error_type: str, error_message: str, severity: str = "ERROR", context: dict | None = None
+        self,
+        error_type: str,
+        error_message: str,
+        severity: str = "ERROR",
+        context: dict | None = None,
     ) -> None:
         """Fire-and-forget Telegram error notification."""
         notifier = _get_telegram_notifier()
         if notifier and notifier.config.enabled:
             try:
-                asyncio.create_task(notifier.notify_error(
-                    error_type=error_type,
-                    error_message=error_message,
-                    severity=severity,
-                    context=context,
-                ))
+                asyncio.create_task(
+                    notifier.notify_error(
+                        error_type=error_type,
+                        error_message=error_message,
+                        severity=severity,
+                        context=context,
+                    )
+                )
             except RuntimeError:
                 pass
 
     def _send_risk_notification(
-        self, event_type: str, message: str, current_value: str | None = None, limit: str | None = None
+        self,
+        event_type: str,
+        message: str,
+        current_value: str | None = None,
+        limit: str | None = None,
     ) -> None:
         """Fire-and-forget Telegram risk event notification."""
         notifier = _get_telegram_notifier()
         if notifier and notifier.config.enabled:
             try:
-                asyncio.create_task(notifier.notify_risk_event(
-                    event_type=event_type,
-                    message=message,
-                    current_value=current_value,
-                    limit=limit,
-                ))
+                asyncio.create_task(
+                    notifier.notify_risk_event(
+                        event_type=event_type,
+                        message=message,
+                        current_value=current_value,
+                        limit=limit,
+                    )
+                )
             except RuntimeError:
                 pass
 
@@ -322,9 +338,7 @@ class OrderExecutor:
                 result.execution_time_ms = int((time.monotonic() - start) * 1000)
                 self._runtime.active_executions = max(0, self._runtime.active_executions - 1)
 
-    def _transition_favorite(
-        self, result: FavoriteExecutionResult, state: ExecutionState
-    ) -> None:
+    def _transition_favorite(self, result: FavoriteExecutionResult, state: ExecutionState) -> None:
         """Transition favorite execution to new state."""
         result.state = state
         self._active_state = (

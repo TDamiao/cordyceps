@@ -64,12 +64,11 @@ class DailySummaryJob:
                 # Get trades from today (UTC)
                 now_utc = datetime.now(UTC)
                 start_of_day_ms = int(
-                    (now_utc.replace(hour=0, minute=0, second=0, microsecond=0))
-                    .timestamp() * 1000
+                    (now_utc.replace(hour=0, minute=0, second=0, microsecond=0)).timestamp() * 1000
                 )
                 end_of_day_ms = int(
-                    (now_utc.replace(hour=23, minute=59, second=59, microsecond=999999))
-                    .timestamp() * 1000
+                    (now_utc.replace(hour=23, minute=59, second=59, microsecond=999999)).timestamp()
+                    * 1000
                 )
 
                 stmt = select(PaperTrade).where(
@@ -113,9 +112,7 @@ class DailySummaryJob:
                         arb_pnl += realized_pnl
 
                 # Compute win rate
-                win_rate = (
-                    (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
-                )
+                win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
 
                 return {
                     "total_trades": total_trades,

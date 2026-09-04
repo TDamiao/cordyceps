@@ -408,14 +408,9 @@ class ArbitrageBot:
                     decimal_prices = [Decimal(str(price)) for price in prices]
                     params = fee_params or self._fee_service.get(condition_id)
                     fee_per_share = sum(
-                        calculate_taker_fee(Decimal("1"), price, params)
-                        for price in decimal_prices
+                        calculate_taker_fee(Decimal("1"), price, params) for price in decimal_prices
                     )
-                    net_edge = (
-                        edge
-                        - fee_per_share
-                        - Decimal(str(self._settings.leg_risk_buffer))
-                    )
+                    net_edge = edge - fee_per_share - Decimal(str(self._settings.leg_risk_buffer))
                     # This is an indicative candidate snapshot, not an
                     # executable result: the engine rejected it after fees,
                     # liquidity, slippage, or risk checks.

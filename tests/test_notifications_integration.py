@@ -213,9 +213,11 @@ class TestExecutorNotificationIntegration:
         mock_notifier.notify_risk_event = AsyncMock(return_value=True)
 
         # Patch both executor and risk.manager notifier getters
-        with patch("src.execution.executor._get_telegram_notifier", return_value=mock_notifier), \
-             patch("src.risk.manager._get_notifier", return_value=mock_notifier), \
-             patch("asyncio.create_task") as mock_create_task:
+        with (
+            patch("src.execution.executor._get_telegram_notifier", return_value=mock_notifier),
+            patch("src.risk.manager._get_notifier", return_value=mock_notifier),
+            patch("asyncio.create_task") as mock_create_task,
+        ):
             result = await executor.execute_opportunity(opportunity())
 
             # Either FAILED or ABORTED is acceptable depending on which path triggers

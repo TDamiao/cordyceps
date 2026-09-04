@@ -279,9 +279,7 @@ class TestTelegramConfig:
         with patch.dict("os.environ", {}, clear=True):
             with patch(
                 "src.notifications.telegram.get_settings",
-                return_value=MagicMock(
-                    telegram_bot_token="", telegram_chat_id=""
-                ),
+                return_value=MagicMock(telegram_bot_token="", telegram_chat_id=""),
             ):
                 cfg = TelegramConfig.from_env()
         assert cfg.enabled is False
@@ -477,9 +475,18 @@ class TestFavoriteDetection:
         from src.engine.favorite import FavoriteEngine
 
         engine = FavoriteEngine()
-        book_valid = {"t1": self._make_book(0.95, 0.94, 10000, 10000), "t2": self._make_book(0.05, 0.04, 10000, 10000)}
-        book_time_reject = {"t1": self._make_book(0.95, 0.94, 10000, 10000), "t2": self._make_book(0.05, 0.04, 10000, 10000)}
-        book_price_reject = {"t1": self._make_book(0.80, 0.79, 10000, 10000), "t2": self._make_book(0.20, 0.19, 10000, 10000)}
+        book_valid = {
+            "t1": self._make_book(0.95, 0.94, 10000, 10000),
+            "t2": self._make_book(0.05, 0.04, 10000, 10000),
+        }
+        book_time_reject = {
+            "t1": self._make_book(0.95, 0.94, 10000, 10000),
+            "t2": self._make_book(0.05, 0.04, 10000, 10000),
+        }
+        book_price_reject = {
+            "t1": self._make_book(0.80, 0.79, 10000, 10000),
+            "t2": self._make_book(0.20, 0.19, 10000, 10000),
+        }
 
         engine.analyze_market("m1", "Q?", book_valid, 24.0)
         engine.analyze_market("m2", "Q?", book_time_reject, 999.0)
