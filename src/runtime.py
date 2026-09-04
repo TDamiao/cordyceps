@@ -14,7 +14,7 @@ from src.database import Execution, get_engine, init_db, load_runtime_config, sa
 
 @dataclass
 class RuntimeState:
-    """Mutable operational state. Armed is intentionally never restored on startup."""
+    """Mutable state that starts disarmed until startup readiness succeeds."""
 
     settings: Settings
     armed: bool = False
@@ -114,6 +114,6 @@ def get_runtime() -> RuntimeState:
 
 
 def reset_runtime() -> None:
-    """Test/startup helper that guarantees restart => disarmed."""
+    """Reset process state; the orchestrator may auto-arm after readiness."""
     global _runtime
     _runtime = None

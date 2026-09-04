@@ -41,7 +41,7 @@ class _MockSettings:
     max_favorite_price = 0.98
     min_favorite_size_usd = 5.0
     favorite_take_profit = 0.97
-    favorite_stop_loss = 0.80
+    favorite_stop_loss = 0.91  # More realistic: stops at -4% from entry, not -20%
     max_favorite_exposure_pct = 0.30
     favorite_kelly_fraction = 0.25
     # risk / paper defaults
@@ -693,7 +693,7 @@ class TestFavoriteHistoricalEdgeCases:
                 assert engine2.get_metrics()["rejected_time"] == 1
 
     def test_compounding_simulation_20_trades(self):
-        """Simulate 20 sequential trades and verify compounding stays bounded."""
+        """Simulate 20 sequential trades and verify compounding stays positive."""
         with patch("src.engine.favorite.get_settings", return_value=_MockSettings()):
             engine = FavoriteEngine()
             bankroll = Decimal("1000")
@@ -705,11 +705,13 @@ class TestFavoriteHistoricalEdgeCases:
                 opp = engine.analyze_market(f"poly-comp-{i}", f"Comp {i}?", books, 24.0)
                 assert opp is not None
                 pos = engine.create_position(opp)
-                # Alternate wins and one loss every 5 trades
+                # Alternate wins (16) and losses (4) every 5 trades
+                # Win: exit at 0.97 (profit: 0.02-0.04 per share)
+                # Loss: exit at 0.91 (loss: -0.04 to -0.02 per share, stop_loss=0.91)
                 if i % 5 == 4:
-                    action = engine.check_position(pos, Decimal("0.795"), Decimal("0.790"))
+                    action = engine.check_position(pos, Decimal("0.905"), Decimal("0.900"))
                     assert action == FavoriteAction.STOP_LOSS
-                    pnl = (Decimal("0.795") - opp.favorite_price) * pos.size_shares
+                    pnl = (Decimal("0.905") - opp.favorite_price) * pos.size_shares
                 else:
                     action = engine.check_position(pos, Decimal("0.970"), Decimal("0.965"))
                     assert action == FavoriteAction.TAKE_PROFIT

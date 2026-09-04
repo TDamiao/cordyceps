@@ -29,9 +29,11 @@
       <a class="topbar-link" href="/opportunities">Oportunidades</a>
       <a class="topbar-link" href="/trades">Trades</a>
       <a class="topbar-link" href="/healthcheck">Health</a>
+      <a class="topbar-link" href="/config">Configuração</a>
     </nav>
     <div class="topbar-right">
       <span id="mode-pill" class="pill pill-paper">PAPER</span>
+      <form method="post" action="/logout"><button class="topbar-logout" type="submit">Sair</button></form>
     </div>
   </div>
 </header>
@@ -49,12 +51,25 @@
   <!-- P&L Cards -->
   <h2 class="page-title">P&amp;L</h2>
   <div class="cards cards-4">
-    <div class="card"><div class="card-label">Capital Virtual</div><div class="card-value" id="v-capital">—</div></div>
+    <div class="card"><div class="card-label">Saldo real da carteira (pUSD)</div><div class="card-value" id="v-capital">—</div><div class="card-sub" id="v-wallet-updated">Aguardando leitura</div></div>
     <div class="card"><div class="card-label">P&amp;L Hoje</div><div class="card-value" id="v-pnl-today">—</div></div>
     <div class="card"><div class="card-label">P&amp;L Acumulado</div><div class="card-value" id="v-pnl-total">—</div></div>
     <div class="card"><div class="card-label">ROI</div><div class="card-value" id="v-roi">—</div></div>
   </div>
 
+  <!-- Wallet -->
+  <div class="section-heading">
+    <div><h2 class="page-title">Carteira &amp; segurança</h2><p class="page-subtitle">Dados reais do funder e testes necessários antes do modo live.</p></div>
+    <div class="section-actions">
+      <button class="action-button secondary" id="refresh-wallet" type="button">Atualizar carteira</button>
+    </div>
+  </div>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Proxy / Funder</div><div class="card-value compact mono" id="v-proxy">—</div></div>
+    <div class="card"><div class="card-label">Signer / EOA</div><div class="card-value compact mono" id="v-eoa">—</div></div>
+    <div class="card"><div class="card-label">Allowance Exchange</div><div class="card-value compact" id="v-allowance">—</div></div>
+    <div class="card"><div class="card-label">Autenticação CLOB</div><div class="card-value compact" id="v-clob-auth">—</div></div>
+  </div>
   <!-- Metrics Cards -->
   <h2 class="page-title">Métricas</h2>
   <div class="cards cards-4">
@@ -68,6 +83,18 @@
     <div class="card"><div class="card-label">Edge Médio</div><div class="card-value sm" id="v-edge-avg">—</div></div>
     <div class="card"><div class="card-label">Maior Edge</div><div class="card-value sm" id="v-edge-max">—</div></div>
     <div class="card"><div class="card-label">Exposição Atual</div><div class="card-value sm" id="v-exposure">—</div></div>
+  </div>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Mercados analisados</div><div class="card-value sm" id="v-analyzed">—</div></div>
+    <div class="card"><div class="card-label">Candidatos brutos</div><div class="card-value sm" id="v-raw">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por edge</div><div class="card-value sm" id="v-rejected-edge">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por book antigo</div><div class="card-value sm" id="v-rejected-stale">—</div></div>
+  </div>
+  <div class="cards cards-4">
+    <div class="card"><div class="card-label">Rejeitados por liquidez</div><div class="card-value sm" id="v-rejected-liquidity">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por slippage</div><div class="card-value sm" id="v-rejected-slippage">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por fee</div><div class="card-value sm" id="v-rejected-fee">—</div></div>
+    <div class="card"><div class="card-label">Rejeitados por lucro</div><div class="card-value sm" id="v-rejected-profit">—</div></div>
   </div>
 
   <!-- Recent Opportunities Table -->
@@ -99,6 +126,13 @@
 const $ = s => document.querySelector(s);
 const fmt = (v, d=2) => v != null ? Number(v).toFixed(d) : '—';
 const fmtUsd = v => v != null ? '$' + Number(v).toFixed(2) : '—';
+const field = (x, name, fallback) => x[name] != null ? x[name] : fallback;
+const vwap = (x, index) => (x.vwap_prices || x.prices || [])[index];
+const total = x => field(x, 'combined_price', (x.vwap_prices || x.prices || []).reduce((sum, p) => sum + Number(p || 0), 0) || null);
+const size = x => field(x, 'executable_size', field(x, 'max_size', x.size));
+const profit = x => field(x, 'expected_profit', field(x, 'expected_profit_usd', x.net_profit));
+const market = x => (x.market_question || x.market || x.market_id || '—');
+const shortAddr = v => v ? v.slice(0, 6) + '…' + v.slice(-4) : 'Não configurado';
 const timeAgo = ts => {
   if (!ts) return '—';
   const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
@@ -118,7 +152,7 @@ async function load() {
     // Mode pill
     const mode = health.mode || 'paper';
     const pill = $('#mode-pill');
-    pill.textContent = mode.toUpperCase();
+    pill.textContent = mode === 'live' ? (status?.armed ? 'LIVE ARMADO' : 'LIVE DESARMADO') : mode.toUpperCase();
     pill.className = 'pill ' + (mode === 'live' ? 'pill-live' : 'pill-paper');
 
     // Status dots
@@ -132,16 +166,38 @@ async function load() {
     const paper = health.paper_engine || {};
     const totalProfit = paper.total_profit || 0;
     const tradeCount = paper.trade_count || 0;
-    const capital = 100;
+    const wallet = status?.wallet || {};
+    const capital = wallet.usdc_balance;
     $('#v-capital').textContent = fmtUsd(capital);
+    $('#v-wallet-updated').textContent = wallet.last_refresh
+      ? 'Atualizado ' + new Date(wallet.last_refresh * 1000).toLocaleTimeString('pt-BR')
+      : 'Clique em Atualizar carteira';
     $('#v-pnl-today').textContent = fmtUsd(totalProfit);
     $('#v-pnl-total').textContent = fmtUsd(totalProfit);
-    $('#v-roi').textContent = fmt(totalProfit / capital * 100, 1) + '%';
+    $('#v-roi').textContent = capital > 0 ? fmt(totalProfit / capital * 100, 1) + '%' : '—';
+
+    // Wallet real
+    $('#v-proxy').textContent = shortAddr(wallet.proxy_address);
+    $('#v-proxy').title = wallet.proxy_address || '';
+    $('#v-eoa').textContent = shortAddr(wallet.eoa_address);
+    $('#v-eoa').title = wallet.eoa_address || '';
+    $('#v-allowance').textContent = wallet.exchange_allowance_unlimited
+      ? 'Ilimitada' : fmtUsd(wallet.exchange_allowance);
+    $('#v-clob-auth').textContent = wallet.authenticated ? 'Autorizada' : 'Não autorizada';
+    $('#v-clob-auth').className = 'card-value compact ' + (wallet.authenticated ? 'value-ok' : 'value-warn');
+    const risk = status?.risk || {};
+    const controlStatus = $('#control-status');
+    if (controlStatus) controlStatus.innerHTML = `<span class="status-chip ${risk.is_paused ? 'blocked' : 'ok'}">${risk.is_paused ? 'Circuit breaker BLOQUEADO' : 'Circuit breaker liberado'}</span><span>Falhas consecutivas: ${fmt(risk.consecutive_failures, 0)}</span><span>${status?.armed ? 'Live armado' : 'Live desarmado'}</span><span>${status?.kill_switch ? 'Kill switch ativo' : 'Kill switch desligado'}</span>`;
 
     // Metrics
-    const opps = hist?.opportunities || [];
+    const seenOpportunities = new Set();
+    const opps = (hist?.opportunities || []).filter(o => {
+      const key = `${o.market_id}:${o.signal_type}:${o.status}`;
+      if (seenOpportunities.has(key)) return false;
+      seenOpportunities.add(key); return true;
+    });
     const trades = hist?.paper_trades || [];
-    const executable = opps.filter(o => o.status === 'executable' || o.status === 'simulated').length;
+    const executable = opps.filter(o => ['detected', 'executable', 'simulated'].includes(o.status)).length;
     const fills = trades.filter(t => t.status === 'filled').length;
     const fillRate = trades.length > 0 ? (fills / trades.length * 100) : 0;
     const legFails = trades.filter(t => t.status === 'leg_failed').length;
@@ -157,6 +213,15 @@ async function load() {
     $('#v-edge-avg').textContent = fmt(avgEdge * 100, 1) + '%';
     $('#v-edge-max').textContent = fmt(maxEdge * 100, 1) + '%';
     $('#v-exposure').textContent = fmtUsd(status?.current_exposure || 0);
+    const strategy = status?.strategy || {};
+    $('#v-analyzed').textContent = fmt(strategy.markets_analyzed, 0);
+    $('#v-raw').textContent = fmt((strategy.buy_opportunities_raw || 0) + (strategy.sell_opportunities_raw || 0), 0);
+    $('#v-rejected-edge').textContent = fmt(strategy.rejected_edge, 0);
+    $('#v-rejected-stale').textContent = fmt(strategy.rejected_stale, 0);
+    $('#v-rejected-liquidity').textContent = fmt(strategy.rejected_liquidity, 0);
+    $('#v-rejected-slippage').textContent = fmt(strategy.rejected_slippage, 0);
+    $('#v-rejected-fee').textContent = fmt(strategy.rejected_fee, 0);
+    $('#v-rejected-profit').textContent = fmt(strategy.rejected_profit, 0);
 
     // Opportunities table
     const tbody = $('#opp-table-body');
@@ -165,14 +230,14 @@ async function load() {
     } else {
       tbody.innerHTML = opps.slice(0, 20).map(o => `<tr>
         <td>${timeAgo(o.timestamp || o.detected_at)}</td>
-        <td>${(o.market_question || o.market || '—').substring(0,40)}</td>
-        <td>${fmt(o.yes_vwap, 4)}</td>
-        <td>${fmt(o.no_vwap, 4)}</td>
-        <td>${fmt(o.combined_price || o.total_cost, 4)}</td>
+        <td>${market(o).substring(0,40)}</td>
+        <td>${fmt(field(o, 'yes_vwap', vwap(o, 0)), 4)}</td>
+        <td>${fmt(field(o, 'no_vwap', vwap(o, 1)), 4)}</td>
+        <td>${fmt(total(o), 4)}</td>
         <td>${fmt((o.net_edge || o.gross_edge || 0) * 100, 2)}%</td>
-        <td>${fmt(o.executable_size, 1)}</td>
-        <td>${fmtUsd(o.capital_required || o.total_cost)}</td>
-        <td>${fmtUsd(o.expected_profit || o.expected_profit_usd)}</td>
+        <td>${fmt(size(o), 1)}</td>
+        <td>${fmtUsd(field(o, 'capital_required', field(o, 'total_cost', total(o) && size(o) != null ? total(o) * size(o) : null)))}</td>
+        <td>${fmtUsd(profit(o))}</td>
         <td><span class="pill ${o.status === 'simulated' ? 'pill-ok' : o.status === 'rejected' ? 'pill-err' : 'pill-paper'}">${o.status || '—'}</span></td>
       </tr>`).join('');
     }
@@ -181,7 +246,35 @@ async function load() {
   }
 }
 
-load();
+async function authenticatedFetch(url, options = {}) {
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    location.href = '/login';
+    throw new Error('Sessão expirada');
+  }
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.detail || 'Falha na operação');
+  return payload;
+}
+
+async function refreshWallet() {
+  const button = $('#refresh-wallet');
+  button.disabled = true;
+  button.textContent = 'Atualizando…';
+  try {
+    await authenticatedFetch('/api/wallet/refresh', {method: 'POST'});
+    await load();
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Atualizar carteira';
+  }
+}
+
+$('#refresh-wallet').addEventListener('click', refreshWallet);
+refreshWallet().catch(error => {
+  console.error('Initial wallet refresh failed:', error);
+  load();
+});
 setInterval(load, 10000);
 </script>
 

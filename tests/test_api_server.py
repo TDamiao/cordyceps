@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -80,6 +81,50 @@ def api_module(monkeypatch):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_auto_arm_live_after_readiness(api_module, monkeypatch):
+    class Runtime:
+        def __init__(self):
+            self.settings = SimpleNamespace(
+                trading_mode="live", live_trading_enabled=True
+            )
+            self.armed = False
+
+        def arm(self):
+            self.armed = True
+
+    class Readiness:
+        async def check(self, force=False):
+            assert force is True
+            return {"ready": True, "checks": {}}
+
+    runtime = Runtime()
+    monkeypatch.setattr(api_module, "_runtime", runtime)
+    monkeypatch.setattr(api_module, "_readiness", Readiness())
+
+    await api_module._auto_arm_live()
+
+    assert runtime.armed is True
+
+
+@pytest.mark.asyncio
+async def test_auto_arm_is_disabled_outside_live_mode(api_module, monkeypatch):
+    class Readiness:
+        async def check(self, force=False):
+            raise AssertionError("readiness must not run in paper mode")
+
+    runtime = SimpleNamespace(
+        settings=SimpleNamespace(trading_mode="paper", live_trading_enabled=True),
+        armed=False,
+    )
+    monkeypatch.setattr(api_module, "_runtime", runtime)
+    monkeypatch.setattr(api_module, "_readiness", Readiness())
+
+    await api_module._auto_arm_live()
+
+    assert runtime.armed is False
 
 
 @pytest.mark.asyncio

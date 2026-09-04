@@ -21,8 +21,9 @@
       <a class="topbar-link" href="/opportunities">Oportunidades</a>
       <a class="topbar-link" href="/trades">Trades</a>
       <a class="topbar-link" href="/healthcheck">Health</a>
+      <a class="topbar-link" href="/config">Configuração</a>
     </nav>
-    <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span></div>
+    <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span><form method="post" action="/logout"><button class="topbar-logout" type="submit">Sair</button></form></div>
   </div>
 </header>
 <div class="container">
@@ -39,13 +40,16 @@ const fmt = (v,d=2) => v != null ? Number(v).toFixed(d) : '—';
 const timeAgo = ts => { if(!ts) return '—'; const s=Math.floor((Date.now()-new Date(ts).getTime())/1000); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; };
 async function load() {
   try {
-    const h = await fetch('/health').then(r=>r.json());
+    const [h, s] = await Promise.all([
+      fetch('/health').then(r=>r.json()),
+      fetch('/api/status').then(r=>r.json()).catch(()=>null),
+    ]);
     const pill = document.querySelector('#mode-pill');
-    pill.textContent = (h.mode||'paper').toUpperCase();
+    pill.textContent = h.mode === 'live' ? (s?.armed ? 'LIVE ARMADO' : 'LIVE DESARMADO') : (h.mode||'paper').toUpperCase();
     pill.className = 'pill '+(h.mode==='live'?'pill-live':'pill-paper');
-    const r = await fetch('/api/history?limit=50').then(r=>r.json()).catch(()=>({markets:[]}));
+    const r = await fetch('/api/markets').then(r=>r.json()).catch(()=>({markets:[]}));
     const tbl = document.querySelector('#tbl');
-    const m = (r.executions || r.paper_trades || []).map(e => ({question: e.market_question || e.market || e.opportunity_id || "—", outcomes: [], token_ids: [], active: true, neg_risk: false, end_date: "—", discovered_at: e.created_at || e.timestamp}));
+    const m = r.markets || [];
     if (!m.length) { tbl.innerHTML = '<tr><td colspan="7"><div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg><h3>Nenhum mercado descoberto</h3><p>O scanner está buscando mercados ativos na Polymarket.</p></div></td></tr>'; return; }
     tbl.innerHTML = m.map(x => `<tr>
       <td>${(x.question||x.slug||'—').substring(0,60)}</td>
@@ -54,7 +58,7 @@ async function load() {
       <td>${x.active?'Sim':'Não'}</td>
       <td>${x.neg_risk?'Sim':'Não'}</td>
       <td>${x.end_date||'—'}</td>
-      <td>${timeAgo(x.discovered_at)}</td>
+      <td>${x.condition_id ? x.condition_id.substring(0,10)+'…' : '—'}</td>
     </tr>`).join('');
   } catch(e) { console.error(e); }
 }

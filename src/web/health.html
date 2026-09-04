@@ -18,9 +18,10 @@
     <a class="topbar-link" href="/markets">Mercados</a>
     <a class="topbar-link" href="/opportunities">Oportunidades</a>
     <a class="topbar-link" href="/trades">Trades</a>
-    <a class="topbar-link active" href="/health">Health</a>
+    <a class="topbar-link active" href="/healthcheck">Health</a>
+    <a class="topbar-link" href="/config">Configuração</a>
   </nav>
-  <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span></div>
+  <div class="topbar-right"><span id="mode-pill" class="pill pill-paper">PAPER</span><form method="post" action="/logout"><button class="topbar-logout" type="submit">Sair</button></form></div>
 </div></header>
 <div class="container">
   <h1 class="page-title">Health Check</h1>
@@ -42,9 +43,12 @@
 const fmt = (v,d=2) => v != null ? Number(v).toFixed(d) : '—';
 async function load() {
   try {
-    const r = await fetch('/health').then(r=>r.json());
+    const [r, s] = await Promise.all([
+      fetch('/health').then(r=>r.json()),
+      fetch('/api/status').then(r=>r.json()).catch(()=>null),
+    ]);
     const pill = document.querySelector('#mode-pill');
-    pill.textContent = (r.mode||'paper').toUpperCase();
+    pill.textContent = r.mode === 'live' ? (s?.armed ? 'LIVE ARMADO' : 'LIVE DESARMADO') : (r.mode||'paper').toUpperCase();
     pill.className = 'pill '+(r.mode==='live'?'pill-live':'pill-paper');
     const ok = r.status === 'ok' || r.status === 'running';
     document.querySelector('#h-status').textContent = r.status || '—';

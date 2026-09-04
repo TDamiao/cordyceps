@@ -15,7 +15,7 @@ from src.database import Opportunity, get_engine
 from src.engine import ArbitrageEngine
 from src.engine.detector import calculate_price_sum
 from src.execution import OrderExecutor, RateLimiter
-from src.fees import FeeService
+from src.fees import FeeParameters, FeeService, calculate_taker_fee
 from src.markets import MarketFetcher
 from src.observer import MarketObserver
 from src.paper_engine import PaperEngine
@@ -65,7 +65,7 @@ class ArbitrageBot:
         )
         self._health = HealthMonitor(self._metrics)
 
-        self._fetcher = MarketFetcher()
+        self._fetcher = MarketFetcher(gamma_host=self._settings.gamma_api_url)
         self._active_markets: dict[str, list[str]] = {}
 
         self._running = False
@@ -159,6 +159,11 @@ class ArbitrageBot:
 
             if not markets:
                 logger.warning("No active markets found")
+                # Keep the observer alive: the scanner may recover from a
+                # transient Gamma/proxy failure and populate markets later.
+                observer_task = asyncio.create_task(self._run_observer())
+                await self._shutdown_event.wait()
+                observer_task.cancel()
                 return
 
             logger.info("Found active markets", count=len(markets))
@@ -232,7 +237,17 @@ class ArbitrageBot:
             return
 
         try:
-            fee_params = await self._fee_service.refresh(condition_id)
+            # Analyze immediately.  Fee metadata is refreshed once per market
+            # in the background; blocking every book callback on HTTP makes a
+            # fresh order book stale during network degradation.
+            market = self._fetcher.cache.get_market(condition_id)
+            if market and market.fees_enabled is False:
+                fee_params = FeeParameters(
+                    rate=Decimal("0"), exponent=Decimal("1"), source="gamma_fee_free"
+                )
+            else:
+                fee_params = self._fee_service.get(condition_id)
+                self._fee_service.refresh_in_background(condition_id)
             before = self._engine.stats
             opportunity = self._engine.analyze_market(
                 condition_id, order_books, fee_params=fee_params
@@ -254,7 +269,10 @@ class ArbitrageBot:
                     if after.get(name, 0) > before.get(name, 0)
                 ]
                 self._persist_rejected(
-                    condition_id, order_books, reasons[0] if reasons else "no_edge"
+                    condition_id,
+                    order_books,
+                    reasons[0] if reasons else "no_edge",
+                    fee_params,
                 )
                 return
 
@@ -312,6 +330,7 @@ class ArbitrageBot:
             self._position_monitor.stop()
 
         await self._fetcher.close()
+        await self._fee_service.close()
 
         self._health.set_websocket_status(False)
         logger.info("Bot stopped")
@@ -322,7 +341,13 @@ class ArbitrageBot:
         books = self._observer.state.get_market_books(opportunity.market_id)
         if not books:
             return None
-        fee_params = await self._fee_service.refresh(opportunity.market_id)
+        market = self._fetcher.cache.get_market(opportunity.market_id)
+        if market and market.fees_enabled is False:
+            fee_params = FeeParameters(
+                rate=Decimal("0"), exponent=Decimal("1"), source="gamma_fee_free"
+            )
+        else:
+            fee_params = await self._fee_service.refresh(opportunity.market_id)
         return self._engine.analyze_market(opportunity.market_id, books, fee_params=fee_params)
 
     def _persist_opportunity(self, opportunity) -> None:
@@ -353,7 +378,13 @@ class ArbitrageBot:
         except Exception as exc:
             logger.warning("opportunity.persist_failed", error=str(exc))
 
-    def _persist_rejected(self, condition_id: str, books: dict, reason: str) -> None:
+    def _persist_rejected(
+        self,
+        condition_id: str,
+        books: dict,
+        reason: str,
+        fee_params: FeeParameters | None = None,
+    ) -> None:
         ask_sum = calculate_price_sum(books, "ask")
         bid_sum = calculate_price_sum(books, "bid")
         candidates = []
@@ -371,15 +402,38 @@ class ArbitrageBot:
                     levels = [
                         book.best_ask if side == "ask" else book.best_bid for book in books.values()
                     ]
+                    prices = [float(level.price) for level in levels if level]
+                    executable_size = min(
+                        (level.size for level in levels if level), default=Decimal("0")
+                    )
+                    decimal_prices = [Decimal(str(price)) for price in prices]
+                    params = fee_params or self._fee_service.get(condition_id)
+                    fee_per_share = sum(
+                        calculate_taker_fee(Decimal("1"), price, params)
+                        for price in decimal_prices
+                    )
+                    net_edge = (
+                        edge
+                        - fee_per_share
+                        - Decimal(str(self._settings.leg_risk_buffer))
+                    )
+                    # This is an indicative candidate snapshot, not an
+                    # executable result: the engine rejected it after fees,
+                    # liquidity, slippage, or risk checks.
                     session.add(
                         Opportunity(
                             market_id=condition_id,
                             signal_type=signal,
                             token_ids=list(books),
-                            prices=[float(level.price) for level in levels if level],
-                            best_prices=[float(level.price) for level in levels if level],
+                            prices=prices,
+                            best_prices=prices,
+                            vwap_prices=prices,
                             gross_edge=float(edge),
-                            net_edge=float(edge),
+                            net_edge=float(net_edge),
+                            fee=float(fee_per_share * executable_size),
+                            size=float(executable_size),
+                            max_size=float(executable_size),
+                            net_profit=float(net_edge * executable_size),
                             decision="rejected",
                             rejection_reason=reason,
                             status="rejected",

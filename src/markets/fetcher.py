@@ -5,10 +5,13 @@ Fetches market metadata from Gamma API and CLOB, builds mappings,
 and caches results for efficient access.
 """
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import aiohttp
 
@@ -43,6 +46,7 @@ class MarketInfo:
     volume: Decimal = Decimal("0")
     liquidity: Decimal = Decimal("0")
     neg_risk: bool = False
+    fees_enabled: bool | None = None
 
     @property
     def token_ids(self) -> list[str]:
@@ -121,6 +125,7 @@ class MarketFetcher:
         self.gamma_host = gamma_host
         self._cache = MarketCache(ttl_seconds=cache_ttl)
         self._session: aiohttp.ClientSession | None = None
+        self._session_trust_env = True
 
     @property
     def cache(self) -> MarketCache:
@@ -130,7 +135,10 @@ class MarketFetcher:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            # Dokploy routes egress through HTTP(S)_PROXY. aiohttp ignores
+            # those variables unless trust_env is explicitly enabled.
+            self._session = aiohttp.ClientSession(trust_env=True)
+            self._session_trust_env = True
         return self._session
 
     async def close(self) -> None:
@@ -173,7 +181,11 @@ class MarketFetcher:
 
             async with session.get(url, params=params) as response:
                 response.raise_for_status()
-                data = await response.json()
+            data = await response.json()
+            if isinstance(data, dict):
+                data = data.get("data", data.get("markets", []))
+            if not isinstance(data, list):
+                raise ValueError("Gamma API returned an unexpected market payload")
 
             markets = []
             for item in data:
@@ -194,6 +206,11 @@ class MarketFetcher:
 
                 markets.append(market)
 
+            # The offset-based Gamma /markets endpoint rejects the documented
+            # liquidity_num ordering field with HTTP 422. Rank the returned
+            # slice locally so market discovery remains available.
+            markets.sort(key=lambda market: market.liquidity, reverse=True)
+
             # Update cache
             self._cache.update(markets)
 
@@ -205,9 +222,59 @@ class MarketFetcher:
 
             return markets
 
-        except aiohttp.ClientError as e:
+        except Exception as e:
             logger.error("Failed to fetch markets", error=str(e))
+            # Some Dokploy proxy configurations accept curl but close an
+            # aiohttp CONNECT tunnel. Retry once without proxy before
+            # declaring market discovery unavailable.
+            if self._session_trust_env:
+                if self._session and not self._session.closed:
+                    await self._session.close()
+                self._session = aiohttp.ClientSession(trust_env=False)
+                self._session_trust_env = False
+                return await self.fetch_markets(
+                    active_only=active_only,
+                    binary_only=binary_only,
+                    min_volume=min_volume,
+                    min_liquidity=min_liquidity,
+                    limit=limit,
+                )
+            # Last-resort path for Dokploy images where aiohttp's CONNECT
+            # tunnel is reset but the container's curl/urllib route works.
+            try:
+                query = urlencode(params)
+                request = Request(
+                    f"{self.gamma_host}/markets?{query}",
+                    headers={
+                        "User-Agent": "Cordyceps/1.0 (+https://cordyceps.tdamiao.com)",
+                        "Accept": "application/json",
+                    },
+                )
+                raw = await asyncio.to_thread(self._urlopen_json, request)
+                data = raw.get("data", raw.get("markets", [])) if isinstance(raw, dict) else raw
+                markets = [m for item in data if (m := self._parse_market(item)) is not None]
+                if binary_only:
+                    markets = [m for m in markets if m.is_binary]
+                if min_volume > 0:
+                    minimum_volume = Decimal(str(min_volume))
+                    markets = [m for m in markets if m.volume >= minimum_volume]
+                if min_liquidity > 0:
+                    minimum_liquidity = Decimal(str(min_liquidity))
+                    markets = [m for m in markets if m.liquidity >= minimum_liquidity]
+                markets.sort(key=lambda market: market.liquidity, reverse=True)
+                self._cache.update(markets)
+                logger.info("Markets fetched via urllib fallback", filtered=len(markets))
+                return markets
+            except Exception as fallback_exc:
+                logger.error("Gamma urllib fallback failed", error=str(fallback_exc))
             return []
+
+    @staticmethod
+    def _urlopen_json(request: Request) -> Any:
+        with urlopen(request, timeout=15) as response:  # noqa: S310 - fixed Gamma URL
+            import json
+
+            return json.loads(response.read())
 
     async def fetch_market_by_id(self, condition_id: str) -> MarketInfo | None:
         """
@@ -310,11 +377,27 @@ class MarketFetcher:
             else:
                 clob_token_ids = []
 
-            # Parse prices (comma-separated string)
+            if isinstance(outcomes, str):
+                try:
+                    outcomes = json.loads(outcomes)
+                except json.JSONDecodeError:
+                    outcomes = [value.strip() for value in outcomes.split(",")]
+            if not isinstance(outcomes, list):
+                outcomes = []
+
+            # Gamma has returned both JSON arrays and comma-separated strings.
             prices = []
             if outcome_prices:
                 try:
-                    prices = [Decimal(p.strip()) for p in outcome_prices.split(",")]
+                    if isinstance(outcome_prices, list):
+                        raw_prices = outcome_prices
+                    elif isinstance(outcome_prices, str) and outcome_prices.lstrip().startswith(
+                        "["
+                    ):
+                        raw_prices = json.loads(outcome_prices)
+                    else:
+                        raw_prices = str(outcome_prices).split(",")
+                    prices = [Decimal(str(p).strip()) for p in raw_prices]
                 except Exception:
                     prices = []
 
@@ -346,6 +429,11 @@ class MarketFetcher:
                 volume=Decimal(str(data.get("volumeNum", 0) or 0)),
                 liquidity=Decimal(str(data.get("liquidityNum", 0) or 0)),
                 neg_risk=data.get("negRisk", False),
+                fees_enabled=(
+                    data.get("feesEnabled")
+                    if isinstance(data.get("feesEnabled"), bool)
+                    else None
+                ),
             )
 
             return market
