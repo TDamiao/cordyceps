@@ -2,19 +2,19 @@ name: Temporary Black formatter
 
 on:
   push:
-    branches: [fix/restore-github-auth-ci]
+    branches:
+      - "fix/restore-github-auth-ci"
 
 permissions:
   contents: write
 
 jobs:
   format:
-    if: ${{ !contains(github.event.head_commit.message, 'style: apply Black 26.5.1') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/restore-github-auth-ci
+          ref: "fix/restore-github-auth-ci"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
