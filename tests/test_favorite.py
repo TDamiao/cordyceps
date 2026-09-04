@@ -8,12 +8,10 @@ Run with:
 
 from __future__ import annotations
 
-import asyncio
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ------------------------------------------------------------------
 # Favorite Engine
@@ -181,7 +179,7 @@ class TestFavoriteEngine:
         assert engine.get_metrics()["opportunities_found"] == 1
 
     def test_check_position_take_profit(self):
-        from src.engine.favorite import FavoriteEngine, FavoritePosition, FavoriteAction
+        from src.engine.favorite import FavoriteAction, FavoriteEngine, FavoritePosition
 
         engine = FavoriteEngine()
         position = FavoritePosition(
@@ -201,7 +199,7 @@ class TestFavoriteEngine:
         assert position.action == FavoriteAction.TAKE_PROFIT
 
     def test_check_position_stop_loss(self):
-        from src.engine.favorite import FavoriteEngine, FavoritePosition, FavoriteAction
+        from src.engine.favorite import FavoriteAction, FavoriteEngine, FavoritePosition
 
         engine = FavoriteEngine()
         position = FavoritePosition(
@@ -221,7 +219,7 @@ class TestFavoriteEngine:
         assert position.action == FavoriteAction.STOP_LOSS
 
     def test_check_position_time_exit(self):
-        from src.engine.favorite import FavoriteEngine, FavoritePosition, FavoriteAction
+        from src.engine.favorite import FavoriteAction, FavoriteEngine, FavoritePosition
 
         engine = FavoriteEngine()
         position = FavoritePosition(
@@ -398,7 +396,7 @@ class TestKellyFraction:
 
     def test_kelly_respects_fraction_config(self):
         """Test that Kelly respects the kelly_fraction config parameter."""
-        from src.engine.favorite import FavoriteEngine, FavoriteConfig
+        from src.engine.favorite import FavoriteConfig, FavoriteEngine
 
         config = FavoriteConfig(kelly_fraction=Decimal("0.10"))
         engine = FavoriteEngine(config=config)
@@ -463,7 +461,7 @@ class TestFavoriteDetection:
 
     def test_liquidity_check_at_minimum(self):
         """Test liquidity check at exactly min_size_usd."""
-        from src.engine.favorite import FavoriteEngine, FavoriteConfig
+        from src.engine.favorite import FavoriteConfig, FavoriteEngine
 
         config = FavoriteConfig(min_size_usd=Decimal("5.0"))
         engine = FavoriteEngine(config=config)
@@ -502,7 +500,7 @@ class TestFavoriteDetection:
 class TestFavoriteExecution:
     def test_position_hold_within_thresholds(self):
         """Test position remains HOLD when price is within TP/SL."""
-        from src.engine.favorite import FavoriteEngine, FavoritePosition, FavoriteAction
+        from src.engine.favorite import FavoriteAction, FavoriteEngine, FavoritePosition
 
         engine = FavoriteEngine()
         position = FavoritePosition(
@@ -524,7 +522,7 @@ class TestFavoriteExecution:
 
     def test_position_stop_loss_at_threshold(self):
         """Test stop loss triggers at exactly stop_loss_price."""
-        from src.engine.favorite import FavoriteEngine, FavoritePosition, FavoriteAction
+        from src.engine.favorite import FavoriteAction, FavoriteEngine, FavoritePosition
 
         engine = FavoriteEngine()
         position = FavoritePosition(
@@ -545,7 +543,7 @@ class TestFavoriteExecution:
 
     def test_position_take_profit_at_threshold(self):
         """Test take profit triggers at exactly take_profit_price."""
-        from src.engine.favorite import FavoriteEngine, FavoritePosition, FavoriteAction
+        from src.engine.favorite import FavoriteAction, FavoriteEngine, FavoritePosition
 
         engine = FavoriteEngine()
         position = FavoritePosition(
@@ -566,7 +564,7 @@ class TestFavoriteExecution:
 
     def test_position_time_exit_less_than_1h_in_profit(self):
         """Test time-based exit when < 1h to resolution and in profit."""
-        from src.engine.favorite import FavoriteEngine, FavoritePosition, FavoriteAction
+        from src.engine.favorite import FavoriteAction, FavoriteEngine, FavoritePosition
 
         engine = FavoriteEngine()
         # Entry 3 hours ago, resolution in 3.5h total -> 0.5h remaining
@@ -588,7 +586,7 @@ class TestFavoriteExecution:
 
     def test_position_time_exit_not_in_profit(self):
         """Test time-based exit does NOT trigger when not in profit."""
-        from src.engine.favorite import FavoriteEngine, FavoritePosition, FavoriteAction
+        from src.engine.favorite import FavoriteAction, FavoriteEngine, FavoritePosition
 
         engine = FavoriteEngine()
         # Entry 3 hours ago, resolution in 3.5h total -> 0.5h remaining

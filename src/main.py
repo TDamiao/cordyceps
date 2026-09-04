@@ -23,7 +23,6 @@ from src.runtime import RuntimeState, get_runtime
 from src.settlement import PositionMonitor, SettlementAgent
 from src.utils.logging import get_logger, setup_logging
 from src.utils.metrics import HealthMonitor, MetricsTracker
-from src.jobs.scheduler import JobScheduler
 
 logger = get_logger(__name__)
 

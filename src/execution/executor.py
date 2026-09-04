@@ -9,7 +9,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, StrEnum
-from typing import Union
 
 from sqlmodel import Session, select
 
@@ -17,7 +16,12 @@ from src.client import OrderSide, PolymarketClient
 from src.config import get_settings
 from src.database import Execution, ExecutionLeg, RiskEvent, get_engine
 from src.engine.detector import ArbitrageOpportunity, SignalType
-from src.engine.favorite import FavoriteOpportunity, FavoritePosition, FavoriteAction
+from src.engine.favorite import (
+    FavoriteAction,
+    FavoriteEngine,
+    FavoriteOpportunity,
+    FavoritePosition,
+)
 from src.execution.rate_limiter import RateLimiter
 from src.risk.manager import RiskManager
 from src.runtime import RuntimeState, get_runtime
@@ -142,9 +146,12 @@ class OrderExecutor:
         revalidator: (
             Callable[[ArbitrageOpportunity], Awaitable[ArbitrageOpportunity | None]] | None
         ) = None,
-        favorite_engine: "FavoriteEngine | None" = None,  # type: ignore
+        favorite_engine: FavoriteEngine | None = None,
     ):
-        from src.engine.favorite import FavoriteEngine
+        # Use provided favorite_engine or create new instance
+        if favorite_engine is None:
+            from src.engine.favorite import FavoriteEngine as _FavoriteEngine
+            favorite_engine = _FavoriteEngine()
 
         self._client = client
         self._rate_limiter = rate_limiter or RateLimiter()
@@ -153,7 +160,7 @@ class OrderExecutor:
         self._risk = risk_manager or RiskManager(self._settings, self._runtime)
         self._revalidator = revalidator
         self._ctf = ctf_contract
-        self._favorite_engine = favorite_engine or FavoriteEngine()
+        self._favorite_engine = favorite_engine
         self._orders_submitted = 0
         self._orders_filled = 0
         self._orders_failed = 0
@@ -192,8 +199,8 @@ class OrderExecutor:
                 pass
 
     async def execute_opportunity(
-        self, opportunity: Union[ArbitrageOpportunity, FavoriteOpportunity]
-    ) -> Union[ExecutionResult, FavoriteExecutionResult]:
+        self, opportunity: ArbitrageOpportunity | FavoriteOpportunity
+    ) -> ExecutionResult | FavoriteExecutionResult:
         """
         Execute a detected opportunity.
 
@@ -209,7 +216,7 @@ class OrderExecutor:
 
     async def _execute_favorite(
         self, opportunity: FavoriteOpportunity
-    ) -> Union[ExecutionResult, FavoriteExecutionResult]:
+    ) -> ExecutionResult | FavoriteExecutionResult:
         """
         Execute a favorite compounding opportunity.
 
@@ -334,7 +341,7 @@ class OrderExecutor:
 
     async def _execute_arbitrage(
         self, opportunity: ArbitrageOpportunity
-    ) -> Union[ExecutionResult, FavoriteExecutionResult]:
+    ) -> ExecutionResult | FavoriteExecutionResult:
         """Execute arbitrage opportunity (existing multi-leg logic)."""
         result = ExecutionResult(opportunity=opportunity)
         start = time.monotonic()
@@ -396,7 +403,7 @@ class OrderExecutor:
                         if isinstance(raw, TimeoutError):
                             self._send_error_notification(
                                 "LEG_TIMEOUT",
-                                f"Order leg timed out (timeout exceeded).",
+                                "Order leg timed out (timeout exceeded).",
                                 severity="WARNING",
                                 context={
                                     "token_id": token_id[:16],
@@ -519,7 +526,7 @@ class OrderExecutor:
             # Notify unwind failure (kill switch activated)
             self._send_risk_notification(
                 "EXPOSURE_REQUIRES_ATTENTION",
-                f"Emergency unwind failed. Kill switch activated.",
+                "Emergency unwind failed. Kill switch activated.",
                 current_value=f"${float(imbalance):.2f} at risk",
             )
 

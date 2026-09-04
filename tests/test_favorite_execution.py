@@ -11,19 +11,18 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.engine.detector import ArbitrageOpportunity, SignalType
+from src.engine.favorite import FavoriteOpportunity
 from src.execution.executor import (
     ExecutionResult,
     FavoriteExecutionResult,
     OrderExecutor,
-    OrderResult,
     OrderStatus,
 )
-from src.engine.detector import ArbitrageOpportunity, SignalType
-from src.engine.favorite import FavoriteOpportunity
 
 
 class _MockRateLimiter:
@@ -107,7 +106,7 @@ class TestExecuteOpportunityRouting:
         mock_client.get_order = MagicMock(return_value={"size_matched": "52630000"})
         mock_client.cancel_order = MagicMock()
 
-        with patch("src.execution.executor.RiskManager") as MockRisk, \
+        with patch("src.execution.executor.RiskManager") as mock_risk, \
              patch("src.execution.executor.get_runtime") as mock_runtime, \
              patch("src.execution.executor.get_settings"):
             mock_rt = MagicMock()
@@ -122,7 +121,7 @@ class TestExecuteOpportunityRouting:
             mock_risk.add_favorite_position = MagicMock()
             mock_risk.record_success = MagicMock()
             mock_risk.record_failure = MagicMock()
-            MockRisk.return_value = mock_risk
+            mock_risk.return_value = mock_risk
 
             executor = OrderExecutor(client=mock_client)
             executor._rate_limiter = _MockRateLimiter()
@@ -144,7 +143,7 @@ class TestExecuteOpportunityRouting:
         mock_client.get_order = MagicMock(return_value={"size_matched": "100000000"})
         mock_client.cancel_order = MagicMock()
 
-        with patch("src.execution.executor.RiskManager") as MockRisk, \
+        with patch("src.execution.executor.RiskManager") as mock_risk, \
              patch("src.execution.executor.get_runtime") as mock_runtime, \
              patch("src.execution.executor.get_settings"):
             mock_rt = MagicMock()
@@ -158,7 +157,7 @@ class TestExecuteOpportunityRouting:
             mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
             mock_risk.record_success = MagicMock()
             mock_risk.record_failure = MagicMock()
-            MockRisk.return_value = mock_risk
+            mock_risk.return_value = mock_risk
 
             executor = OrderExecutor(client=mock_client)
             executor._rate_limiter = _MockRateLimiter()
@@ -175,7 +174,7 @@ class TestFavoriteExecutionLogic:
 
     def _setup_executor(self, mock_client, mock_risk=None, mock_runtime=None):
         """Create an executor with mocked dependencies."""
-        with patch("src.execution.executor.RiskManager") as MockRisk, \
+        with patch("src.execution.executor.RiskManager") as mock_risk, \
              patch("src.execution.executor.get_runtime") as mock_runtime_fn, \
              patch("src.execution.executor.get_settings"):
             mock_rt = mock_runtime or MagicMock()
@@ -194,7 +193,7 @@ class TestFavoriteExecutionLogic:
                 mock_risk_inst.record_success = MagicMock()
                 mock_risk_inst.record_failure = MagicMock()
 
-            MockRisk.return_value = mock_risk_inst
+            mock_risk.return_value = mock_risk_inst
 
             executor = OrderExecutor(client=mock_client)
             executor._rate_limiter = _MockRateLimiter()
@@ -292,7 +291,7 @@ class TestFavoritePositionDict:
         mock_client.get_order = MagicMock(return_value={"size_matched": "52630000"})
         mock_client.cancel_order = MagicMock()
 
-        with patch("src.execution.executor.RiskManager") as MockRisk, \
+        with patch("src.execution.executor.RiskManager") as mock_risk, \
              patch("src.execution.executor.get_runtime") as mock_runtime, \
              patch("src.execution.executor.get_settings"):
             mock_rt = MagicMock()
@@ -305,7 +304,7 @@ class TestFavoritePositionDict:
             mock_risk = MagicMock()
             mock_risk.validate_trade = MagicMock(return_value=(True, "OK"))
             mock_risk.add_favorite_position = MagicMock()
-            MockRisk.return_value = mock_risk
+            mock_risk.return_value = mock_risk
 
             executor = OrderExecutor(client=mock_client)
             executor._rate_limiter = _MockRateLimiter()
@@ -327,7 +326,7 @@ class TestFavoritePositionDict:
             ]
             for field in required_fields:
                 assert field in position_dict, f"Missing field: {field}"
-            
+
             assert position_dict["market_id"] == "m1"
             assert position_dict["market_question"] == "Test market?"
             assert position_dict["token_id"] == "t1"

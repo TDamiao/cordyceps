@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlmodel import Session, select
@@ -63,7 +62,7 @@ class DailySummaryJob:
         try:
             with Session(get_engine(self._settings)) as session:
                 # Get trades from today (UTC)
-                now_utc = datetime.now(timezone.utc)
+                now_utc = datetime.now(UTC)
                 start_of_day_ms = int(
                     (now_utc.replace(hour=0, minute=0, second=0, microsecond=0))
                     .timestamp() * 1000

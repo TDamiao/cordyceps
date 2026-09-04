@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import time
-from datetime import datetime, time as dt_time, timedelta, timezone
+from datetime import UTC, datetime
+from datetime import time as dt_time
 
 from src.config import Settings, get_settings
 from src.jobs.daily_summary import DailySummaryJob
@@ -43,13 +43,13 @@ class JobScheduler:
             )
 
             while not self._stop.is_set():
-                now_utc = datetime.now(timezone.utc)
+                now_utc = datetime.now(UTC)
                 await self._check_and_run_daily_summary(now_utc)
 
                 # Sleep for 1 minute before next check
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=60.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
         self._task = asyncio.create_task(_scheduler_loop(), name="cordyceps-scheduler")
@@ -57,7 +57,7 @@ class JobScheduler:
     async def _check_and_run_daily_summary(self, now_utc: datetime) -> None:
         """Check if it's time for daily summary and run it."""
         # Check if it's the scheduled time (20:00 UTC)
-        target_time_utc = datetime.combine(now_utc.date(), self._daily_summary_time, tzinfo=timezone.utc)
+        target_time_utc = datetime.combine(now_utc.date(), self._daily_summary_time, tzinfo=UTC)
 
         # If we've already run today, skip
         if self._last_run_daily and self._last_run_daily.date() == now_utc.date():

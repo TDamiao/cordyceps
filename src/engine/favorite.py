@@ -18,7 +18,6 @@ import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
 from src.client.models import OrderBook
 from src.config import get_settings
@@ -70,7 +69,7 @@ class FavoriteOpportunity:
     fees_estimate: Decimal
     net_edge: Decimal
     is_profitable: bool
-    rejection_reason: Optional[str] = None
+    rejection_reason: str | None = None
     timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
 
     @property
@@ -93,7 +92,7 @@ class FavoritePosition:
     stop_loss_price: Decimal
     time_to_resolution_h: float
     unrealized_pnl_pct: Decimal = Decimal("0")
-    current_price: Optional[Decimal] = None
+    current_price: Decimal | None = None
     action: FavoriteAction = FavoriteAction.HOLD
 
 
@@ -108,7 +107,7 @@ class FavoriteEngine:
     4. Positive expected value after fees
     """
 
-    def __init__(self, config: Optional[FavoriteConfig] = None):
+    def __init__(self, config: FavoriteConfig | None = None):
         settings = get_settings()
         self.config = config or FavoriteConfig(
             min_probability=Decimal(str(settings.min_favorite_probability)),
@@ -131,7 +130,7 @@ class FavoriteEngine:
             "rejected_edge": 0,
             "rejected_fee": 0,
         }
-        self._fee_params: Optional[FeeParameters] = None
+        self._fee_params: FeeParameters | None = None
 
     def analyze_market(
         self,
@@ -139,8 +138,8 @@ class FavoriteEngine:
         market_question: str,
         order_books: dict[str, OrderBook],
         time_to_resolution_h: float,
-        fee_params: Optional[FeeParameters] = None,
-    ) -> Optional[FavoriteOpportunity]:
+        fee_params: FeeParameters | None = None,
+    ) -> FavoriteOpportunity | None:
         """
         Analyze a binary market for favorite compounding opportunity.
 

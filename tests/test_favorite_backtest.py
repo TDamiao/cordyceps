@@ -19,14 +19,11 @@ import asyncio
 import time
 from dataclasses import dataclass
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from src.client.models import OrderBook, OrderBookLevel
 from src.engine.favorite import FavoriteAction, FavoriteEngine
 from src.execution.paper import PaperSimulator
-
 
 # ---------------------------------------------------------------------------
 # Mock settings — mirrors src.config.Settings fields used by FavoriteEngine
@@ -410,11 +407,6 @@ class TestFavoriteWeeklyBacktest:
             # (favorite strategy: small wins compound, losses are bounded by SL at 80c)
             assert total_pnl > Decimal("0")
 
-            # Average winner > average loser in magnitude check (risk/reward)
-            avg_win = sum(t.pnl_usd for t in wins) / len(wins) if wins else Decimal("0")
-            # Losses are larger per-trade (entry 94c → exit 80c) but fewer
-            # Overall EV must still be positive — already checked via total_pnl
-
     def test_backtest_metrics_consistency(self):
         """Metrics counters must sum correctly."""
         with patch("src.engine.favorite.get_settings", return_value=_MockSettings()):
@@ -696,7 +688,6 @@ class TestFavoriteHistoricalEdgeCases:
         """Simulate 20 sequential trades and verify compounding stays positive."""
         with patch("src.engine.favorite.get_settings", return_value=_MockSettings()):
             engine = FavoriteEngine()
-            bankroll = Decimal("1000")
             total_pnl = Decimal("0")
             for i in range(20):
                 price = "0.950" if i % 2 == 0 else "0.930"

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from typing import Optional
 
 from src.notifications.telegram import TelegramNotifier, get_notifier
 from src.utils.logging import get_logger
@@ -15,7 +14,7 @@ logger = get_logger(__name__)
 class NotificationService:
     """Centralized notification dispatcher for bot events."""
 
-    def __init__(self, notifier: Optional[TelegramNotifier] = None):
+    def __init__(self, notifier: TelegramNotifier | None = None):
         self.notifier = notifier or get_notifier()
         self._tasks: list[asyncio.Task] = []
 
@@ -23,7 +22,7 @@ class NotificationService:
         self,
         execution_id: str,
         error: str,
-        market_id: Optional[str] = None,
+        market_id: str | None = None,
         severity: str = "ERROR",
     ) -> None:
         """Notify execution failure."""
@@ -56,7 +55,7 @@ class NotificationService:
             task = asyncio.create_task(
                 self.notifier.notify_risk_event(
                     event_type="PARTIAL_FILL",
-                    message=f"Partial leg fill detected. Attempting recovery.",
+                    message="Partial leg fill detected. Attempting recovery.",
                     current_value=f"${imbalance_usd:.2f}",
                     limit=f"${max_imbalance_usd:.2f}",
                 )
@@ -76,7 +75,7 @@ class NotificationService:
             task = asyncio.create_task(
                 self.notifier.notify_risk_event(
                     event_type="EXPOSURE_REQUIRES_ATTENTION",
-                    message=f"Emergency unwind failed. Kill switch activated.",
+                    message="Emergency unwind failed. Kill switch activated.",
                     current_value=f"${exposure_usd:.2f} at risk",
                 )
             )
@@ -112,7 +111,7 @@ class NotificationService:
             task = asyncio.create_task(
                 self.notifier.notify_risk_event(
                     event_type="DAILY_LOSS_LIMIT",
-                    message=f"Daily loss limit exceeded. Trading halted.",
+                    message="Daily loss limit exceeded. Trading halted.",
                     current_value=f"${float(daily_pnl):.2f}",
                     limit=f"-${max_daily_loss:.2f}",
                 )
@@ -153,7 +152,7 @@ class NotificationService:
             task = asyncio.create_task(
                 self.notifier.notify_error(
                     error_type="LEG_TIMEOUT",
-                    error_message=f"Order leg timed out (timeout exceeded).",
+                    error_message="Order leg timed out (timeout exceeded).",
                     context=context,
                     severity="WARNING",
                 )
@@ -178,7 +177,7 @@ class NotificationService:
             task = asyncio.create_task(
                 self.notifier.notify_error(
                     error_type="SLIPPAGE_EXCEEDED",
-                    error_message=f"Opportunity prices moved beyond acceptable slippage during revalidation.",
+                    error_message="Opportunity prices moved beyond acceptable slippage during revalidation.",
                     context=context,
                     severity="WARNING",
                 )
@@ -210,7 +209,7 @@ class NotificationService:
 
 
 # Global instance
-_service: Optional[NotificationService] = None
+_service: NotificationService | None = None
 
 
 def get_notification_service() -> NotificationService:

@@ -415,10 +415,9 @@ class TestGlobalNotifier:
 
     def test_get_notifier_creates_instance(self):
         """get_notifier should create and cache a notifier instance."""
-        from src.notifications.telegram import _notifier, get_notifier
-
         # Clear any existing instance
         import src.notifications.telegram as tn_module
+        from src.notifications.telegram import get_notifier
         tn_module._notifier = None
 
         notifier = get_notifier()
@@ -441,9 +440,8 @@ class TestGlobalNotifier:
     @pytest.mark.asyncio
     async def test_init_notifications_sends_startup(self):
         """init_notifications should send startup message if enabled."""
-        from src.notifications.telegram import init_notifications, _notifier
-
         import src.notifications.telegram as tn_module
+        from src.notifications.telegram import init_notifications
         tn_module._notifier = None
 
         with patch.dict(

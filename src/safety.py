@@ -497,7 +497,7 @@ class ReadinessService:
             "dry_run",
         ]
         ready = all(checks[name]["status"] == "ok" for name in mandatory)
-        
+
         # Send notifications only on state transitions (ok -> blocked)
         for name in mandatory:
             current_status = checks[name]["status"]
@@ -514,7 +514,7 @@ class ReadinessService:
                     except RuntimeError:
                         pass
             self._previous_checks[name] = current_status
-        
+
         # Notify on overall readiness transition
         if not ready and self._previous_ready:
             notifier = _get_notifier()
@@ -527,5 +527,5 @@ class ReadinessService:
                 except RuntimeError:
                     pass
         self._previous_ready = ready
-        
+
         return {"ready": ready, "armed": self.runtime.armed, "checks": checks}

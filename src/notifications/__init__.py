@@ -4,8 +4,8 @@ Handles sending alerts to Telegram for errors, risk events, trades, and status u
 """
 
 from src.notifications.telegram import (
-    TelegramNotifier,
     TelegramConfig,
+    TelegramNotifier,
     get_notifier,
     init_notifications,
     shutdown_notifications,

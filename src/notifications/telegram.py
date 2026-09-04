@@ -7,13 +7,11 @@ Uses TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from environment.
 
 from __future__ import annotations
 
-import asyncio
-import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 from structlog import get_logger
@@ -31,7 +29,7 @@ class TelegramConfig:
     enabled: bool = True
 
     @classmethod
-    def from_env(cls) -> "TelegramConfig":
+    def from_env(cls) -> TelegramConfig:
         """Create config from environment variables."""
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -41,7 +39,7 @@ class TelegramConfig:
             bot_token = getattr(settings, "telegram_bot_token", "")
         if not chat_id:
             chat_id = getattr(settings, "telegram_chat_id", "")
-        
+
         return cls(
             bot_token=bot_token,
             chat_id=chat_id,
@@ -51,30 +49,30 @@ class TelegramConfig:
 
 class TelegramNotifier:
     """Send notifications to Telegram."""
-    
+
     BASE_URL = "https://api.telegram.org/bot"
-    
-    def __init__(self, config: Optional[TelegramConfig] = None):
+
+    def __init__(self, config: TelegramConfig | None = None):
         self.config = config or TelegramConfig.from_env()
-        self._session: Optional[aiohttp.ClientSession] = None
-    
+        self._session: aiohttp.ClientSession | None = None
+
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=10)
             )
         return self._session
-    
+
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
-    
+
     async def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """Send a message to Telegram."""
         if not self.config.enabled:
             logger.debug("Telegram not enabled, skipping message")
             return False
-        
+
         url = f"{self.BASE_URL}{self.config.bot_token}/sendMessage"
         payload = {
             "chat_id": self.config.chat_id,
@@ -82,7 +80,7 @@ class TelegramNotifier:
             "parse_mode": parse_mode,
             "disable_web_page_preview": True,
         }
-        
+
         try:
             session = await self._get_session()
             async with session.post(url, json=payload) as resp:
@@ -95,9 +93,9 @@ class TelegramNotifier:
         except Exception as e:
             logger.error("telegram_send_exception", error=str(e))
             return False
-    
+
     # --- Event-specific notification methods ---
-    
+
     async def notify_startup(self) -> bool:
         """Notify bot startup."""
         settings = get_settings()
@@ -110,7 +108,7 @@ class TelegramNotifier:
             f"⏰ <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
         )
         return await self.send_message(text)
-    
+
     async def notify_shutdown(self, reason: str = "Manual") -> bool:
         """Notify bot shutdown."""
         text = (
@@ -119,7 +117,7 @@ class TelegramNotifier:
             f"⏰ <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
         )
         return await self.send_message(text)
-    
+
     async def notify_trade_open(
         self,
         market_id: str,
@@ -134,7 +132,7 @@ class TelegramNotifier:
         """Notify trade opened."""
         emoji = "🎯" if is_favorite else "⚡"
         strat_label = "Favorite Compounding" if is_favorite else "Unity Arbitrage"
-        
+
         text = (
             f"{emoji} <b>Nova Posição Aberta</b> [{strat_label}]\n\n"
             f"📊 <b>Mercado:</b> {market_question[:80]}...\n"
@@ -146,7 +144,7 @@ class TelegramNotifier:
             f"⏰ <b>Horário:</b> {datetime.now().strftime('%H:%M:%S')}"
         )
         return await self.send_message(text)
-    
+
     async def notify_trade_close(
         self,
         market_id: str,
@@ -158,18 +156,18 @@ class TelegramNotifier:
         pnl: Decimal,
         pnl_pct: float,
         is_favorite: bool = False,
-        hold_duration_min: Optional[int] = None,
+        hold_duration_min: int | None = None,
     ) -> bool:
         """Notify trade closed with P&L."""
         is_profit = pnl > 0
         emoji = "✅" if is_profit else "❌"
         pnl_emoji = "🟢" if is_profit else "🔴"
         strat_label = "Favorite" if is_favorite else "Arb"
-        
+
         duration_text = ""
         if hold_duration_min:
             duration_text = f"\n⏱ <b>Duração:</b> {hold_duration_min} min"
-        
+
         text = (
             f"{emoji} <b>Posição Fechada</b> [{strat_label}] {pnl_emoji}\n\n"
             f"📊 <b>Mercado:</b> {market_question[:80]}...\n"
@@ -182,7 +180,7 @@ class TelegramNotifier:
             f"⏰ <b>Horário:</b> {datetime.now().strftime('%H:%M:%S')}"
         )
         return await self.send_message(text)
-    
+
     async def notify_favorite_position_update(
         self,
         market_id: str,
@@ -195,7 +193,7 @@ class TelegramNotifier:
         """Notify favorite position status update."""
         emoji_map = {"HOLD": "📊", "TAKE_PROFIT": "🎯", "STOP_LOSS": "🛑"}
         emoji = emoji_map.get(action, "📊")
-        
+
         text = (
             f"{emoji} <b>Favorite Position Update</b> [{action}]\n\n"
             f"📊 <b>Mercado:</b> {market_question[:80]}...\n"
@@ -206,7 +204,7 @@ class TelegramNotifier:
             f"⏰ <b>Horário:</b> {datetime.now().strftime('%H:%M:%S')}"
         )
         return await self.send_message(text)
-    
+
     async def notify_daily_summary(
         self,
         total_trades: int,
@@ -222,9 +220,9 @@ class TelegramNotifier:
         """Notify daily summary."""
         is_profit = total_pnl > 0
         emoji = "📈" if is_profit else "📉"
-        
+
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        
+
         text = (
             f"{emoji} <b>Resumo Diário - Cordyceps</b>\n\n"
             f"📊 <b>Total Trades:</b> {total_trades}\n"
@@ -237,23 +235,23 @@ class TelegramNotifier:
             f"📅 <b>Data:</b> {datetime.now().strftime('%d/%m/%Y')}"
         )
         return await self.send_message(text)
-    
+
     async def notify_error(
         self,
         error_type: str,
         error_message: str,
-        context: Optional[dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
         severity: str = "ERROR",  # ERROR, WARNING, CRITICAL
     ) -> bool:
         """Notify error or warning."""
         severity_emoji = {"ERROR": "🔴", "WARNING": "🟡", "CRITICAL": "🚨"}.get(severity, "🔴")
-        
+
         context_text = ""
         if context:
             context_text = "\n📋 <b>Contexto:</b>\n" + "\n".join(
                 f"  • <b>{k}:</b> <code>{v}</code>" for k, v in context.items()
             )
-        
+
         text = (
             f"{severity_emoji} <b>Erro {severity}</b> [{error_type}]\n\n"
             f"📝 <b>Mensagem:</b> {error_message}\n"
@@ -261,13 +259,13 @@ class TelegramNotifier:
             f"⏰ <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
         )
         return await self.send_message(text)
-    
+
     async def notify_risk_event(
         self,
         event_type: str,  # KILL_SWITCH, CIRCUIT_BREAKER, DAILY_LOSS_LIMIT, EXPOSURE_LIMIT
         message: str,
-        current_value: Optional[str] = None,
-        limit: Optional[str] = None,
+        current_value: str | None = None,
+        limit: str | None = None,
     ) -> bool:
         """Notify risk management event."""
         text = (
@@ -280,7 +278,7 @@ class TelegramNotifier:
             text += f"🚧 <b>Limite:</b> {limit}\n"
         text += f"⏰ <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
         return await self.send_message(text)
-    
+
     async def notify_market_scan(
         self,
         markets_scanned: int,
@@ -292,7 +290,7 @@ class TelegramNotifier:
         if opportunities_found == 0 and favorite_candidates == 0:
             # Don't spam on empty scans
             return True
-        
+
         text = (
             f"🔍 <b>Scan de Mercado Concluído</b>\n\n"
             f"📊 <b>Mercados Verificados:</b> {markets_scanned}\n"
@@ -302,7 +300,7 @@ class TelegramNotifier:
             f"⏰ <b>Horário:</b> {datetime.now().strftime('%H:%M:%S')}"
         )
         return await self.send_message(text)
-    
+
     async def notify_arbitrage_opportunity(
         self,
         market_id: str,
@@ -328,7 +326,7 @@ class TelegramNotifier:
 
 
 # Global notifier instance
-_notifier: Optional[TelegramNotifier] = None
+_notifier: TelegramNotifier | None = None
 
 
 def get_notifier() -> TelegramNotifier:

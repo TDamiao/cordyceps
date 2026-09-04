@@ -127,10 +127,10 @@ class TestRiskManager:
             "stop_loss_price": 0.80,
             "time_to_resolution_h": 24.0,
         }
-        
+
         initial_exposure = risk_manager._current_exposure
         risk_manager.add_favorite_position(position)
-        
+
         assert len(risk_manager.get_favorite_positions()) == 1
         assert risk_manager._current_exposure == initial_exposure + Decimal("90.0")
         assert risk_manager._open_trades == 1
@@ -150,10 +150,10 @@ class TestRiskManager:
             "time_to_resolution_h": 24.0,
         }
         risk_manager.add_favorite_position(position)
-        
+
         # Price moved slightly up but not at TP
         risk_manager.update_favorite_position("m1", Decimal("0.92"), Decimal("0.915"))
-        
+
         positions = risk_manager.get_favorite_positions()
         assert positions[0]["action"] == "HOLD"
         assert positions[0]["current_price"] == 0.92
@@ -174,10 +174,10 @@ class TestRiskManager:
             "time_to_resolution_h": 24.0,
         }
         risk_manager.add_favorite_position(position)
-        
+
         # Price hits take profit
         risk_manager.update_favorite_position("m1", Decimal("0.97"), Decimal("0.965"))
-        
+
         positions = risk_manager.get_favorite_positions()
         assert positions[0]["action"] == "TAKE_PROFIT"
         assert risk_manager._open_trades == 0  # Closed
@@ -198,10 +198,10 @@ class TestRiskManager:
             "time_to_resolution_h": 24.0,
         }
         risk_manager.add_favorite_position(position)
-        
+
         # Bid price hits stop loss
         risk_manager.update_favorite_position("m1", Decimal("0.78"), Decimal("0.77"))
-        
+
         positions = risk_manager.get_favorite_positions()
         assert positions[0]["action"] == "STOP_LOSS"
         assert risk_manager._open_trades == 0  # Closed
@@ -223,10 +223,10 @@ class TestRiskManager:
             "time_to_resolution_h": 24.0,
         }
         risk_manager.add_favorite_position(position)
-        
+
         # Price slightly up, < 1h to resolution
         risk_manager.update_favorite_position("m1", Decimal("0.91"), Decimal("0.905"))
-        
+
         positions = risk_manager.get_favorite_positions()
         assert positions[0]["action"] == "TAKE_PROFIT"
         assert risk_manager._open_trades == 0  # Closed

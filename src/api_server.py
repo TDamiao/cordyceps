@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         # Send shutdown notification
         try:
-            from src.notifications.telegram import shutdown_notifications, get_notifier
+            from src.notifications.telegram import get_notifier, shutdown_notifications
             notifier = get_notifier()
             if notifier and notifier.config.enabled:
                 await notifier.notify_shutdown("Server shutting down")

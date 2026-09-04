@@ -13,12 +13,10 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from src.client.models import OrderBook, OrderBookLevel
-from src.engine.favorite import FavoriteEngine, FavoriteOpportunity
+from src.engine.favorite import FavoriteEngine
 from src.execution.paper import PaperSimulator
 
 
