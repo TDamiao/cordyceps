@@ -3,7 +3,7 @@ Risk Manager module.
 
 Handles circuit breakers, daily loss limits, and slippage protection.
 """
-
+import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -15,11 +15,23 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Lazy import to avoid circular dependency
+_notifier = None
+
+def _get_notifier():
+    global _notifier
+    if _notifier is None:
+        try:
+            from src.notifications.telegram import get_notifier as _get_telegram_notifier
+            _notifier = _get_telegram_notifier()
+        except (ImportError, Exception):
+            pass
+    return _notifier
+
 
 @dataclass
 class RiskState:
     """Tracks current risk state (in-memory)."""
-
     consecutive_failures: int = 0
     daily_pnl: Decimal = Decimal("0")
     last_failure_time: float = 0
@@ -27,6 +39,7 @@ class RiskState:
     pause_until: float = 0
     total_trades_today: int = 0
     last_reset_date: str = field(default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%d"))
+    _daily_loss_notified: bool = False
 
 
 class RiskManager:
@@ -46,6 +59,7 @@ class RiskManager:
         self._state = RiskState()
         self._current_exposure = Decimal("0")
         self._open_trades = 0
+        self._favorite_positions = []
 
         logger.info(
             "RiskManager initialized",
@@ -79,6 +93,20 @@ class RiskManager:
 
         # 2. Check Daily Loss
         if self._state.daily_pnl < Decimal(str(-self._settings.max_daily_loss)):
+            # Notify daily loss limit hit via Telegram (only fire once per active breach)
+            if not getattr(self._state, "_daily_loss_notified", False):
+                notifier = _get_notifier()
+                if notifier and notifier.config.enabled:
+                    try:
+                        asyncio.create_task(notifier.notify_risk_event(
+                            event_type="DAILY_LOSS_LIMIT",
+                            message=f"Daily loss limit exceeded: {self._state.daily_pnl} < -{self._settings.max_daily_loss}",
+                            current_value=str(self._state.daily_pnl),
+                            limit=f"-{self._settings.max_daily_loss}",
+                        ))
+                    except RuntimeError:
+                        pass
+                self._state._daily_loss_notified = True
             return (
                 False,
                 f"Daily loss limit exceeded: {self._state.daily_pnl} < -{self._settings.max_daily_loss}",
@@ -135,6 +163,18 @@ class RiskManager:
         self._state.consecutive_failures += 1
         self._state.last_failure_time = time.time()
 
+        # Notify failure via Telegram
+        notifier = _get_notifier()
+        if notifier and notifier.config.enabled:
+            try:
+                asyncio.create_task(notifier.notify_error(
+                    error_type="TRADE_FAILURE",
+                    error_message=error_reason,
+                    severity="ERROR",
+                ))
+            except RuntimeError:
+                pass
+
         logger.warning(
             "Trade failure recorded",
             consecutive_failures=self._state.consecutive_failures,
@@ -162,12 +202,8 @@ class RiskManager:
         Returns:
             True if trade is safe (profitable or within tolerance), False otherwise
         """
-        # We want to buy cheaply. sum(prices) < 1.0 is profit.
-        # If sum > 1.0, we lose money.
         total_cost = yes_price + no_price
 
-        # Hard limit: Don't buy if we are guaranteed to lose money (sum > 1.0)
-        # unless user has some weird strategy, but for arb, >1.0 is bad.
         if total_cost >= Decimal("1.0"):
             logger.warning(
                 "Slippage check failed",
@@ -186,6 +222,18 @@ class RiskManager:
         cooldown_seconds = self._settings.circuit_breaker_cooldown_minutes * 60
         self._state.pause_until = time.time() + cooldown_seconds
 
+        # Notify circuit breaker activation via Telegram
+        notifier = _get_notifier()
+        if notifier and notifier.config.enabled:
+            try:
+                asyncio.create_task(notifier.notify_risk_event(
+                    event_type="CIRCUIT_BREAKER",
+                    message=f"Circuit breaker activated after {self._state.consecutive_failures} consecutive failures.",
+                    limit=f"{self._settings.circuit_breaker_cooldown_minutes} min cooldown",
+                ))
+            except RuntimeError:
+                pass
+
         logger.error(
             "CIRCUIT BREAKER TRIGGERED",
             failures=self._state.consecutive_failures,
@@ -199,9 +247,16 @@ class RiskManager:
         self._state.pause_until = 0
         logger.info("Circuit breaker reset. Resuming trading.")
 
-    def reset_circuit_breaker(self) -> None:
-        """Manually release the breaker after an operator reviewed the incident."""
-        self._reset_circuit_breaker()
+        # Notify circuit breaker reset via Telegram
+        notifier = _get_notifier()
+        if notifier and notifier.config.enabled:
+            try:
+                asyncio.create_task(notifier.notify_risk_event(
+                    event_type="CIRCUIT_BREAKER_RESET",
+                    message="Circuit breaker reset. Trading resumed after cooldown.",
+                ))
+            except RuntimeError:
+                pass
 
     def _check_daily_reset(self):
         """Reset daily stats if date has changed (UTC)."""
@@ -216,8 +271,7 @@ class RiskManager:
             self._state.last_reset_date = current_date
             self._state.daily_pnl = Decimal("0")
             self._state.total_trades_today = 0
-            # We do NOT reset consecutive failures or active circuit breaker on day change
-            # (safety first), but could be argued either way. keeping strict for now.
+            self._state._daily_loss_notified = False
 
     @property
     def state(self) -> dict:
@@ -230,3 +284,39 @@ class RiskManager:
             "current_exposure": float(self._current_exposure),
             "open_trades": self._open_trades,
         }
+
+    def add_favorite_position(self, position: dict) -> None:
+        """Add a favorite position to the risk manager."""
+        self._favorite_positions.append(position)
+        self.open_exposure(Decimal(str(position["size_usd"])))
+
+    def update_favorite_position(self, market_id: str, current_price: Decimal, current_bid: Decimal) -> None:
+        """Update a favorite position and check for TP/SL."""
+        for pos in self._favorite_positions:
+            if pos["market_id"] == market_id:
+                pos["current_price"] = float(current_price)
+                pos["unrealized_pnl_pct"] = float((current_price - Decimal(str(pos["entry_price"]))) / Decimal(str(pos["entry_price"])) * 100)
+
+                if current_price >= Decimal(str(pos["take_profit_price"])):
+                    pos["action"] = "TAKE_PROFIT"
+                    self.close_exposure(Decimal(str(pos["size_usd"])))
+                    return
+
+                if current_bid <= Decimal(str(pos["stop_loss_price"])):
+                    pos["action"] = "STOP_LOSS"
+                    self.close_exposure(Decimal(str(pos["size_usd"])))
+                    return
+
+                elapsed_h = (time.time() - pos["entry_time"]) / 3600
+                remaining_h = pos["time_to_resolution_h"] - elapsed_h
+                if remaining_h <= 1 and current_price > Decimal(str(pos["entry_price"])):
+                    pos["action"] = "TAKE_PROFIT"
+                    self.close_exposure(Decimal(str(pos["size_usd"])))
+                    return
+
+                pos["action"] = "HOLD"
+                return
+
+    def get_favorite_positions(self) -> list:
+        """Get all favorite positions."""
+        return self._favorite_positions

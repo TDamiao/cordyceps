@@ -20,6 +20,19 @@ from src.runtime import RuntimeState
 
 logger = structlog.get_logger(__name__)
 
+# Lazy import to avoid circular dependency
+_notifier = None
+
+def _get_notifier():
+    global _notifier
+    if _notifier is None:
+        try:
+            from src.notifications.telegram import get_notifier as _get_telegram_notifier
+            _notifier = _get_telegram_notifier()
+        except (ImportError, Exception):
+            pass
+    return _notifier
+
 
 @dataclass
 class GeoblockResult:
@@ -314,6 +327,8 @@ class ReadinessService:
         self.geoblock = geoblock
         self.wallet = wallet
         self.bot = bot
+        self._previous_checks: dict[str, str] = {}
+        self._previous_ready: bool = True
 
     @staticmethod
     async def _http_ok(url: str) -> bool:
@@ -482,4 +497,35 @@ class ReadinessService:
             "dry_run",
         ]
         ready = all(checks[name]["status"] == "ok" for name in mandatory)
+
+        # Send notifications only on state transitions (ok -> blocked)
+        for name in mandatory:
+            current_status = checks[name]["status"]
+            previous_status = self._previous_checks.get(name, "ok")
+            if current_status != "ok" and previous_status == "ok":
+                notifier = _get_notifier()
+                if notifier and notifier.config.enabled:
+                    try:
+                        await notifier.notify_error(
+                            error_type=f"READY_{name.upper()}",
+                            error_message=f"Safety check '{name}' failed: {checks[name].get('detail', 'check failed')}",
+                            severity="ERROR",
+                        )
+                    except RuntimeError:
+                        pass
+            self._previous_checks[name] = current_status
+
+        # Notify on overall readiness transition
+        if not ready and self._previous_ready:
+            notifier = _get_notifier()
+            if notifier and notifier.config.enabled:
+                try:
+                    await notifier.notify_risk_event(
+                        event_type="READINESS_DROP",
+                        message=f"Bot readiness dropped to not-ready. {sum(1 for v in checks.values() if v['status'] != 'ok')} checks failing.",
+                    )
+                except RuntimeError:
+                    pass
+        self._previous_ready = ready
+
         return {"ready": ready, "armed": self.runtime.armed, "checks": checks}

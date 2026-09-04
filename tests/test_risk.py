@@ -112,3 +112,121 @@ class TestRiskManager:
 
         # Loss
         assert risk_manager.check_slippage(Decimal("0.6"), Decimal("0.5")) is False
+
+    def test_add_favorite_position(self, risk_manager):
+        """Test adding a favorite position updates exposure."""
+        position = {
+            "market_id": "m1",
+            "market_question": "Test market?",
+            "token_id": "t1",
+            "entry_price": 0.90,
+            "entry_time": time.time(),
+            "size_shares": 100.0,
+            "size_usd": 90.0,
+            "take_profit_price": 0.97,
+            "stop_loss_price": 0.80,
+            "time_to_resolution_h": 24.0,
+        }
+
+        initial_exposure = risk_manager._current_exposure
+        risk_manager.add_favorite_position(position)
+
+        assert len(risk_manager.get_favorite_positions()) == 1
+        assert risk_manager._current_exposure == initial_exposure + Decimal("90.0")
+        assert risk_manager._open_trades == 1
+
+    def test_update_favorite_position_hold(self, risk_manager):
+        """Test updating position that should hold."""
+        position = {
+            "market_id": "m1",
+            "market_question": "Test market?",
+            "token_id": "t1",
+            "entry_price": 0.90,
+            "entry_time": time.time(),
+            "size_shares": 100.0,
+            "size_usd": 90.0,
+            "take_profit_price": 0.97,
+            "stop_loss_price": 0.80,
+            "time_to_resolution_h": 24.0,
+        }
+        risk_manager.add_favorite_position(position)
+
+        # Price moved slightly up but not at TP
+        risk_manager.update_favorite_position("m1", Decimal("0.92"), Decimal("0.915"))
+
+        positions = risk_manager.get_favorite_positions()
+        assert positions[0]["action"] == "HOLD"
+        assert positions[0]["current_price"] == 0.92
+        assert risk_manager._open_trades == 1  # Still open
+
+    def test_update_favorite_position_take_profit(self, risk_manager):
+        """Test take profit triggers correctly."""
+        position = {
+            "market_id": "m1",
+            "market_question": "Test market?",
+            "token_id": "t1",
+            "entry_price": 0.90,
+            "entry_time": time.time(),
+            "size_shares": 100.0,
+            "size_usd": 90.0,
+            "take_profit_price": 0.97,
+            "stop_loss_price": 0.80,
+            "time_to_resolution_h": 24.0,
+        }
+        risk_manager.add_favorite_position(position)
+
+        # Price hits take profit
+        risk_manager.update_favorite_position("m1", Decimal("0.97"), Decimal("0.965"))
+
+        positions = risk_manager.get_favorite_positions()
+        assert positions[0]["action"] == "TAKE_PROFIT"
+        assert risk_manager._open_trades == 0  # Closed
+        assert risk_manager._current_exposure == Decimal("0")
+
+    def test_update_favorite_position_stop_loss(self, risk_manager):
+        """Test stop loss triggers correctly."""
+        position = {
+            "market_id": "m1",
+            "market_question": "Test market?",
+            "token_id": "t1",
+            "entry_price": 0.90,
+            "entry_time": time.time(),
+            "size_shares": 100.0,
+            "size_usd": 90.0,
+            "take_profit_price": 0.97,
+            "stop_loss_price": 0.80,
+            "time_to_resolution_h": 24.0,
+        }
+        risk_manager.add_favorite_position(position)
+
+        # Bid price hits stop loss
+        risk_manager.update_favorite_position("m1", Decimal("0.78"), Decimal("0.77"))
+
+        positions = risk_manager.get_favorite_positions()
+        assert positions[0]["action"] == "STOP_LOSS"
+        assert risk_manager._open_trades == 0  # Closed
+        assert risk_manager._current_exposure == Decimal("0")
+
+    def test_update_favorite_position_time_exit(self, risk_manager):
+        """Test time-based exit when < 1h to resolution and in profit."""
+        entry_time = time.time() - 23 * 3600  # 23 hours ago
+        position = {
+            "market_id": "m1",
+            "market_question": "Test market?",
+            "token_id": "t1",
+            "entry_price": 0.90,
+            "entry_time": entry_time,
+            "size_shares": 100.0,
+            "size_usd": 90.0,
+            "take_profit_price": 0.97,
+            "stop_loss_price": 0.80,
+            "time_to_resolution_h": 24.0,
+        }
+        risk_manager.add_favorite_position(position)
+
+        # Price slightly up, < 1h to resolution
+        risk_manager.update_favorite_position("m1", Decimal("0.91"), Decimal("0.905"))
+
+        positions = risk_manager.get_favorite_positions()
+        assert positions[0]["action"] == "TAKE_PROFIT"
+        assert risk_manager._open_trades == 0  # Closed

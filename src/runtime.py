@@ -81,9 +81,26 @@ class RuntimeState:
     def kill(self) -> None:
         self.kill_switch = True
         self.armed = False
+        # Notify kill switch activation via Telegram
+        self._notify_kill_switch("Kill switch activated via runtime")
 
     def resume(self) -> None:
         self.kill_switch = False
+        # Notify kill switch deactivation via Telegram
+        self._notify_kill_switch("Kill switch deactivated", activated=False)
+
+    def _notify_kill_switch(self, reason: str, activated: bool = True) -> None:
+        """Fire-and-forget Telegram notification for kill switch state change."""
+        try:
+            from src.notifications.telegram import get_notifier
+            notifier = get_notifier()
+            if notifier and notifier.config.enabled:
+                asyncio.create_task(notifier.notify_risk_event(
+                    event_type="KILL_SWITCH",
+                    message=f"Kill switch {'activated' if activated else 'deactivated'}: {reason}",
+                ))
+        except (ImportError, Exception):
+            pass
 
 
 _runtime: RuntimeState | None = None
