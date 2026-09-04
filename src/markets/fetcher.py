@@ -430,9 +430,7 @@ class MarketFetcher:
                 liquidity=Decimal(str(data.get("liquidityNum", 0) or 0)),
                 neg_risk=data.get("negRisk", False),
                 fees_enabled=(
-                    data.get("feesEnabled")
-                    if isinstance(data.get("feesEnabled"), bool)
-                    else None
+                    data.get("feesEnabled") if isinstance(data.get("feesEnabled"), bool) else None
                 ),
             )
 

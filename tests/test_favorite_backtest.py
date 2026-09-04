@@ -29,6 +29,7 @@ from src.execution.paper import PaperSimulator
 # Mock settings — mirrors src.config.Settings fields used by FavoriteEngine
 # ---------------------------------------------------------------------------
 
+
 class _MockSettings:
     max_total_exposure_usd = 1000.0
     trading_mode = "paper"
@@ -52,6 +53,7 @@ class _MockSettings:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _book(token_id: str, bid: str, ask: str, size: str = "10000") -> OrderBook:
     return OrderBook(
@@ -110,6 +112,7 @@ def _simulate_price_path(
 # 1 — Single-day backtest: 8 markets, mix of valid / rejected
 # ---------------------------------------------------------------------------
 
+
 class TestFavoriteBacktestSingleDay:
     """Simulate one trading day with 8 diverse markets."""
 
@@ -119,14 +122,21 @@ class TestFavoriteBacktestSingleDay:
 
             # Define 8 markets (id, fav_price, fav_bid, size, hours_to_resolve, should_detect)
             scenarios = [
-                ("poly-fed-001", "0.950", "0.945", "10000", 12.0, True),   # Fed decision — valid
+                ("poly-fed-001", "0.950", "0.945", "10000", 12.0, True),  # Fed decision — valid
                 ("poly-sports-002", "0.930", "0.925", "8000", 24.0, True),  # Sports — valid
-                ("poly-election-003", "0.960", "0.955", "6000", 3.0, True), # Election near res — valid
-                ("poly-low-price-004", "0.800", "0.795", "5000", 24.0, False), # price < 0.85
-                ("poly-high-price-005", "0.990", "0.985", "5000", 24.0, False), # price > 0.98
-                ("poly-long-time-006", "0.920", "0.915", "5000", 80.0, False), # >72h
-                ("poly-low-prob-007", "0.880", "0.875", "5000", 24.0, False), # prob < 0.90
-                ("poly-low-liq-008", "0.920", "0.915", "2", 24.0, False),     # liquidity < $5
+                (
+                    "poly-election-003",
+                    "0.960",
+                    "0.955",
+                    "6000",
+                    3.0,
+                    True,
+                ),  # Election near res — valid
+                ("poly-low-price-004", "0.800", "0.795", "5000", 24.0, False),  # price < 0.85
+                ("poly-high-price-005", "0.990", "0.985", "5000", 24.0, False),  # price > 0.98
+                ("poly-long-time-006", "0.920", "0.915", "5000", 80.0, False),  # >72h
+                ("poly-low-prob-007", "0.880", "0.875", "5000", 24.0, False),  # prob < 0.90
+                ("poly-low-liq-008", "0.920", "0.915", "2", 24.0, False),  # liquidity < $5
             ]
 
             detected: list[str] = []
@@ -143,14 +153,31 @@ class TestFavoriteBacktestSingleDay:
                     # Create position and simulate a winning path to TP
                     pos = engine.create_position(opp)
                     action = _simulate_price_path(
-                        engine, pos,
-                        [(Decimal("0.960"), Decimal("0.955")), (Decimal("0.970"), Decimal("0.965"))],
+                        engine,
+                        pos,
+                        [
+                            (Decimal("0.960"), Decimal("0.955")),
+                            (Decimal("0.970"), Decimal("0.965")),
+                        ],
                     )
                     # 95c → 97c should trigger TP
                     assert action == FavoriteAction.TAKE_PROFIT, f"{mid} should hit TP"
                     pnl_usd = (Decimal("0.97") - opp.favorite_price) * pos.size_shares
-                    pnl_pct = (Decimal("0.97") - opp.favorite_price) / opp.favorite_price * Decimal("100")
-                    trades.append(BacktestTrade(mid, opp.favorite_price, Decimal("0.97"), pos.size_usd, pos.size_shares, action, pnl_usd, pnl_pct))
+                    pnl_pct = (
+                        (Decimal("0.97") - opp.favorite_price) / opp.favorite_price * Decimal("100")
+                    )
+                    trades.append(
+                        BacktestTrade(
+                            mid,
+                            opp.favorite_price,
+                            Decimal("0.97"),
+                            pos.size_usd,
+                            pos.size_shares,
+                            action,
+                            pnl_usd,
+                            pnl_pct,
+                        )
+                    )
                 else:
                     assert opp is None, f"Expected rejection for {mid} at {price}"
                     rejected.append(mid)
@@ -178,6 +205,7 @@ class TestFavoriteBacktestSingleDay:
 # ---------------------------------------------------------------------------
 # 2 — Price evolution: TP vs SL
 # ---------------------------------------------------------------------------
+
 
 class TestFavoritePriceEvolution:
 
@@ -269,6 +297,7 @@ class TestFavoritePriceEvolution:
 # 3 — Kelly sizing & exposure limits across a week of trading
 # ---------------------------------------------------------------------------
 
+
 class TestFavoriteBacktestKellyAndExposure:
 
     def test_kelly_sizing_respects_cap(self):
@@ -326,6 +355,7 @@ class TestFavoriteBacktestKellyAndExposure:
 # 4 — Weekly backtest: 5 days × varied markets, aggregate metrics
 # ---------------------------------------------------------------------------
 
+
 class TestFavoriteWeeklyBacktest:
 
     def test_weekly_backtest_aggregate_pnl(self):
@@ -379,14 +409,31 @@ class TestFavoriteWeeklyBacktest:
                     if opp is None:
                         continue
                     pos = engine.create_position(opp)
-                    action = engine.check_position(pos, Decimal(outcome_price), Decimal(outcome_bid))
+                    action = engine.check_position(
+                        pos, Decimal(outcome_price), Decimal(outcome_bid)
+                    )
                     # If outcome is 97c+ → TP, if 80c → SL, else HOLD (treat as TP for winners)
                     if action == FavoriteAction.HOLD and Decimal(outcome_price) >= Decimal("0.97"):
                         # Force TP check with higher price
                         action = engine.check_position(pos, Decimal("0.970"), Decimal("0.965"))
                     pnl_usd = (Decimal(outcome_price) - opp.favorite_price) * pos.size_shares
-                    pnl_pct = (Decimal(outcome_price) - opp.favorite_price) / opp.favorite_price * Decimal("100")
-                    all_trades.append(BacktestTrade(mid, opp.favorite_price, Decimal(outcome_price), pos.size_usd, pos.size_shares, action, pnl_usd, pnl_pct))
+                    pnl_pct = (
+                        (Decimal(outcome_price) - opp.favorite_price)
+                        / opp.favorite_price
+                        * Decimal("100")
+                    )
+                    all_trades.append(
+                        BacktestTrade(
+                            mid,
+                            opp.favorite_price,
+                            Decimal(outcome_price),
+                            pos.size_usd,
+                            pos.size_shares,
+                            action,
+                            pnl_usd,
+                            pnl_pct,
+                        )
+                    )
 
             m = engine.get_metrics()
             assert m["markets_analyzed"] == total_markets
@@ -414,10 +461,18 @@ class TestFavoriteWeeklyBacktest:
             # 6 markets: 2 valid, 4 rejected for different reasons
             cases = [
                 (_binary_books("0.950", "0.945", "10000"), 24.0, True),
-                (_binary_books("0.800", "0.795", "5000",), 24.0, False),  # price
+                (
+                    _binary_books(
+                        "0.800",
+                        "0.795",
+                        "5000",
+                    ),
+                    24.0,
+                    False,
+                ),  # price
                 (_binary_books("0.950", "0.945", "10000"), 80.0, False),  # time
-                (_binary_books("0.880", "0.875", "5000"), 24.0, False),   # prob
-                (_binary_books("0.920", "0.915", "2"), 24.0, False),      # liquidity
+                (_binary_books("0.880", "0.875", "5000"), 24.0, False),  # prob
+                (_binary_books("0.920", "0.915", "2"), 24.0, False),  # liquidity
                 (_binary_books("0.930", "0.925", "10000"), 24.0, True),
             ]
             for idx, (books, hrs, _) in enumerate(cases):
@@ -425,12 +480,19 @@ class TestFavoriteWeeklyBacktest:
             m = engine.get_metrics()
             assert m["markets_analyzed"] == 6
             assert m["opportunities_found"] == 2
-            assert m["rejected_price"] + m["rejected_time"] + m["rejected_probability"] + m["rejected_liquidity"] == 4
+            assert (
+                m["rejected_price"]
+                + m["rejected_time"]
+                + m["rejected_probability"]
+                + m["rejected_liquidity"]
+                == 4
+            )
 
 
 # ---------------------------------------------------------------------------
 # 5 — Paper execution end-to-end (Favorite → PaperSimulator)
 # ---------------------------------------------------------------------------
+
 
 class TestFavoritePaperExecution:
 
@@ -452,6 +514,7 @@ class TestFavoritePaperExecution:
                 fill_fraction_jitter=0.0,
             )
             from src.engine.detector import ArbitrageOpportunity, SignalType
+
             synth = ArbitrageOpportunity(
                 market_id=opp.market_id,
                 signal_type=SignalType.BUY_SET,
@@ -463,7 +526,8 @@ class TestFavoritePaperExecution:
                 expected_payout=opp.position_shares,
                 gross_profit=opp.expected_return_pct * opp.position_size_usd / 100,
                 fees=opp.fees_estimate,
-                net_profit=opp.expected_return_pct * opp.position_size_usd / 100 - opp.fees_estimate,
+                net_profit=opp.expected_return_pct * opp.position_size_usd / 100
+                - opp.fees_estimate,
                 profit_pct=opp.expected_return_pct,
                 executable_quantity=opp.position_shares,
             )
@@ -488,6 +552,7 @@ class TestFavoritePaperExecution:
                 fill_fraction_jitter=0.05,
             )
             from src.engine.detector import ArbitrageOpportunity, SignalType
+
             synth = ArbitrageOpportunity(
                 market_id=opp.market_id,
                 signal_type=SignalType.BUY_SET,
@@ -499,7 +564,8 @@ class TestFavoritePaperExecution:
                 expected_payout=opp.position_shares,
                 gross_profit=opp.expected_return_pct * opp.position_size_usd / 100,
                 fees=opp.fees_estimate,
-                net_profit=opp.expected_return_pct * opp.position_size_usd / 100 - opp.fees_estimate,
+                net_profit=opp.expected_return_pct * opp.position_size_usd / 100
+                - opp.fees_estimate,
                 profit_pct=opp.expected_return_pct,
                 executable_quantity=opp.position_shares,
             )
@@ -522,6 +588,7 @@ class TestFavoritePaperExecution:
                 fill_fraction_jitter=0.0,
             )
             from src.engine.detector import ArbitrageOpportunity, SignalType
+
             synth = ArbitrageOpportunity(
                 market_id=opp.market_id,
                 signal_type=SignalType.BUY_SET,
@@ -533,7 +600,8 @@ class TestFavoritePaperExecution:
                 expected_payout=opp.position_shares,
                 gross_profit=opp.expected_return_pct * opp.position_size_usd / 100,
                 fees=opp.fees_estimate,
-                net_profit=opp.expected_return_pct * opp.position_size_usd / 100 - opp.fees_estimate,
+                net_profit=opp.expected_return_pct * opp.position_size_usd / 100
+                - opp.fees_estimate,
                 profit_pct=opp.expected_return_pct,
                 executable_quantity=opp.position_shares,
             )
@@ -546,11 +614,13 @@ class TestFavoritePaperExecution:
 # 6 — RiskManager integration
 # ---------------------------------------------------------------------------
 
+
 class TestFavoriteRiskIntegration:
 
     def test_risk_manager_tracks_favorite_exposure(self):
         with patch("src.engine.favorite.get_settings", return_value=_MockSettings()):
             from src.risk.manager import RiskManager
+
             settings = _MockSettings()
             rm = RiskManager(settings=settings)  # type: ignore[arg-type]
             engine = FavoriteEngine()
@@ -561,16 +631,18 @@ class TestFavoriteRiskIntegration:
             pos = engine.create_position(opp)
 
             # Add to risk manager
-            rm.add_favorite_position({
-                "market_id": pos.market_id,
-                "entry_price": str(pos.entry_price),
-                "entry_time": pos.entry_time,
-                "size_usd": str(pos.size_usd),
-                "size_shares": str(pos.size_shares),
-                "take_profit_price": str(pos.take_profit_price),
-                "stop_loss_price": str(pos.stop_loss_price),
-                "time_to_resolution_h": pos.time_to_resolution_h,
-            })
+            rm.add_favorite_position(
+                {
+                    "market_id": pos.market_id,
+                    "entry_price": str(pos.entry_price),
+                    "entry_time": pos.entry_time,
+                    "size_usd": str(pos.size_usd),
+                    "size_shares": str(pos.size_shares),
+                    "take_profit_price": str(pos.take_profit_price),
+                    "stop_loss_price": str(pos.stop_loss_price),
+                    "time_to_resolution_h": pos.time_to_resolution_h,
+                }
+            )
             assert len(rm.get_favorite_positions()) == 1
             assert rm.state["current_exposure"] > 0
 
@@ -581,6 +653,7 @@ class TestFavoriteRiskIntegration:
     def test_risk_manager_stop_loss_closes_exposure(self):
         with patch("src.engine.favorite.get_settings", return_value=_MockSettings()):
             from src.risk.manager import RiskManager
+
             settings = _MockSettings()
             rm = RiskManager(settings=settings)  # type: ignore[arg-type]
             engine = FavoriteEngine()
@@ -589,16 +662,18 @@ class TestFavoriteRiskIntegration:
             opp = engine.analyze_market("poly-risk-sl", "Risk SL?", books, 24.0)
             assert opp is not None
             pos = engine.create_position(opp)
-            rm.add_favorite_position({
-                "market_id": pos.market_id,
-                "entry_price": str(pos.entry_price),
-                "entry_time": pos.entry_time,
-                "size_usd": str(pos.size_usd),
-                "size_shares": str(pos.size_shares),
-                "take_profit_price": str(pos.take_profit_price),
-                "stop_loss_price": str(pos.stop_loss_price),
-                "time_to_resolution_h": pos.time_to_resolution_h,
-            })
+            rm.add_favorite_position(
+                {
+                    "market_id": pos.market_id,
+                    "entry_price": str(pos.entry_price),
+                    "entry_time": pos.entry_time,
+                    "size_usd": str(pos.size_usd),
+                    "size_shares": str(pos.size_shares),
+                    "take_profit_price": str(pos.take_profit_price),
+                    "stop_loss_price": str(pos.stop_loss_price),
+                    "time_to_resolution_h": pos.time_to_resolution_h,
+                }
+            )
             # Crash to SL
             rm.update_favorite_position(pos.market_id, Decimal("0.795"), Decimal("0.790"))
             assert rm.get_favorite_positions()[0]["action"] == "STOP_LOSS"
@@ -606,22 +681,25 @@ class TestFavoriteRiskIntegration:
     def test_risk_manager_can_trade_after_favorite_positions(self):
         with patch("src.engine.favorite.get_settings", return_value=_MockSettings()):
             from src.risk.manager import RiskManager
+
             settings = _MockSettings()
             rm = RiskManager(settings=settings)  # type: ignore[arg-type]
             # Initially can trade
             allowed, _ = rm.can_trade()
             assert allowed is True
             # After adding a position within limits, still can trade
-            rm.add_favorite_position({
-                "market_id": "m1",
-                "entry_price": "0.95",
-                "entry_time": int(time.time()),
-                "size_usd": "50",
-                "size_shares": "52",
-                "take_profit_price": "0.97",
-                "stop_loss_price": "0.80",
-                "time_to_resolution_h": 24.0,
-            })
+            rm.add_favorite_position(
+                {
+                    "market_id": "m1",
+                    "entry_price": "0.95",
+                    "entry_time": int(time.time()),
+                    "size_usd": "50",
+                    "size_shares": "52",
+                    "take_profit_price": "0.97",
+                    "stop_loss_price": "0.80",
+                    "time_to_resolution_h": 24.0,
+                }
+            )
             allowed, _ = rm.can_trade()
             assert allowed is True
 
@@ -629,6 +707,7 @@ class TestFavoriteRiskIntegration:
 # ---------------------------------------------------------------------------
 # 7 — Edge cases & historical realism
 # ---------------------------------------------------------------------------
+
 
 class TestFavoriteHistoricalEdgeCases:
 

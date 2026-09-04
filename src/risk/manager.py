@@ -3,6 +3,7 @@ Risk Manager module.
 
 Handles circuit breakers, daily loss limits, and slippage protection.
 """
+
 import asyncio
 import time
 from dataclasses import dataclass, field
@@ -18,11 +19,13 @@ logger = get_logger(__name__)
 # Lazy import to avoid circular dependency
 _notifier = None
 
+
 def _get_notifier():
     global _notifier
     if _notifier is None:
         try:
             from src.notifications.telegram import get_notifier as _get_telegram_notifier
+
             _notifier = _get_telegram_notifier()
         except (ImportError, Exception):
             pass
@@ -32,6 +35,7 @@ def _get_notifier():
 @dataclass
 class RiskState:
     """Tracks current risk state (in-memory)."""
+
     consecutive_failures: int = 0
     daily_pnl: Decimal = Decimal("0")
     last_failure_time: float = 0
@@ -98,12 +102,14 @@ class RiskManager:
                 notifier = _get_notifier()
                 if notifier and notifier.config.enabled:
                     try:
-                        asyncio.create_task(notifier.notify_risk_event(
-                            event_type="DAILY_LOSS_LIMIT",
-                            message=f"Daily loss limit exceeded: {self._state.daily_pnl} < -{self._settings.max_daily_loss}",
-                            current_value=str(self._state.daily_pnl),
-                            limit=f"-{self._settings.max_daily_loss}",
-                        ))
+                        asyncio.create_task(
+                            notifier.notify_risk_event(
+                                event_type="DAILY_LOSS_LIMIT",
+                                message=f"Daily loss limit exceeded: {self._state.daily_pnl} < -{self._settings.max_daily_loss}",
+                                current_value=str(self._state.daily_pnl),
+                                limit=f"-{self._settings.max_daily_loss}",
+                            )
+                        )
                     except RuntimeError:
                         pass
                 self._state._daily_loss_notified = True
@@ -167,11 +173,13 @@ class RiskManager:
         notifier = _get_notifier()
         if notifier and notifier.config.enabled:
             try:
-                asyncio.create_task(notifier.notify_error(
-                    error_type="TRADE_FAILURE",
-                    error_message=error_reason,
-                    severity="ERROR",
-                ))
+                asyncio.create_task(
+                    notifier.notify_error(
+                        error_type="TRADE_FAILURE",
+                        error_message=error_reason,
+                        severity="ERROR",
+                    )
+                )
             except RuntimeError:
                 pass
 
@@ -226,11 +234,13 @@ class RiskManager:
         notifier = _get_notifier()
         if notifier and notifier.config.enabled:
             try:
-                asyncio.create_task(notifier.notify_risk_event(
-                    event_type="CIRCUIT_BREAKER",
-                    message=f"Circuit breaker activated after {self._state.consecutive_failures} consecutive failures.",
-                    limit=f"{self._settings.circuit_breaker_cooldown_minutes} min cooldown",
-                ))
+                asyncio.create_task(
+                    notifier.notify_risk_event(
+                        event_type="CIRCUIT_BREAKER",
+                        message=f"Circuit breaker activated after {self._state.consecutive_failures} consecutive failures.",
+                        limit=f"{self._settings.circuit_breaker_cooldown_minutes} min cooldown",
+                    )
+                )
             except RuntimeError:
                 pass
 
@@ -251,10 +261,12 @@ class RiskManager:
         notifier = _get_notifier()
         if notifier and notifier.config.enabled:
             try:
-                asyncio.create_task(notifier.notify_risk_event(
-                    event_type="CIRCUIT_BREAKER_RESET",
-                    message="Circuit breaker reset. Trading resumed after cooldown.",
-                ))
+                asyncio.create_task(
+                    notifier.notify_risk_event(
+                        event_type="CIRCUIT_BREAKER_RESET",
+                        message="Circuit breaker reset. Trading resumed after cooldown.",
+                    )
+                )
             except RuntimeError:
                 pass
 
@@ -290,12 +302,18 @@ class RiskManager:
         self._favorite_positions.append(position)
         self.open_exposure(Decimal(str(position["size_usd"])))
 
-    def update_favorite_position(self, market_id: str, current_price: Decimal, current_bid: Decimal) -> None:
+    def update_favorite_position(
+        self, market_id: str, current_price: Decimal, current_bid: Decimal
+    ) -> None:
         """Update a favorite position and check for TP/SL."""
         for pos in self._favorite_positions:
             if pos["market_id"] == market_id:
                 pos["current_price"] = float(current_price)
-                pos["unrealized_pnl_pct"] = float((current_price - Decimal(str(pos["entry_price"]))) / Decimal(str(pos["entry_price"])) * 100)
+                pos["unrealized_pnl_pct"] = float(
+                    (current_price - Decimal(str(pos["entry_price"])))
+                    / Decimal(str(pos["entry_price"]))
+                    * 100
+                )
 
                 if current_price >= Decimal(str(pos["take_profit_price"])):
                     pos["action"] = "TAKE_PROFIT"

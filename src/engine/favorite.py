@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 
 class FavoriteAction(Enum):
     """Action for favorite position management."""
+
     BUY = "BUY"
     HOLD = "HOLD"
     TAKE_PROFIT = "TAKE_PROFIT"
@@ -38,6 +39,7 @@ class FavoriteAction(Enum):
 @dataclass
 class FavoriteConfig:
     """Configuration for favorite compounding strategy."""
+
     min_probability: Decimal = Decimal("0.90")
     min_price: Decimal = Decimal("0.85")
     max_price: Decimal = Decimal("0.98")
@@ -52,6 +54,7 @@ class FavoriteConfig:
 @dataclass
 class FavoriteOpportunity:
     """Detected favorite compounding opportunity."""
+
     market_id: str
     market_question: str
     favorite_token_id: str
@@ -81,6 +84,7 @@ class FavoriteOpportunity:
 @dataclass
 class FavoritePosition:
     """Open favorite position for monitoring."""
+
     market_id: str
     market_question: str
     token_id: str

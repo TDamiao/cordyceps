@@ -52,12 +52,15 @@ def _send_kill_switch_notification(reason: str, activated: bool = True) -> None:
     """Fire-and-forget kill switch notification."""
     try:
         from src.notifications.telegram import get_notifier
+
         notifier = get_notifier()
         if notifier and notifier.config.enabled:
-            asyncio.create_task(notifier.notify_risk_event(
-                event_type="KILL_SWITCH",
-                message=f"Kill switch {'activated' if activated else 'deactivated'}: {reason}",
-            ))
+            asyncio.create_task(
+                notifier.notify_risk_event(
+                    event_type="KILL_SWITCH",
+                    message=f"Kill switch {'activated' if activated else 'deactivated'}: {reason}",
+                )
+            )
     except (ImportError, Exception):
         pass
 
@@ -104,6 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Send startup notification
     try:
         from src.notifications.telegram import init_notifications
+
         await init_notifications()
     except Exception as exc:
         logger.warning("telegram_startup_notification_failed", error=str(exc))
@@ -117,6 +121,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Send shutdown notification
         try:
             from src.notifications.telegram import get_notifier, shutdown_notifications
+
             notifier = get_notifier()
             if notifier and notifier.config.enabled:
                 await notifier.notify_shutdown("Server shutting down")

@@ -93,12 +93,15 @@ class RuntimeState:
         """Fire-and-forget Telegram notification for kill switch state change."""
         try:
             from src.notifications.telegram import get_notifier
+
             notifier = get_notifier()
             if notifier and notifier.config.enabled:
-                asyncio.create_task(notifier.notify_risk_event(
-                    event_type="KILL_SWITCH",
-                    message=f"Kill switch {'activated' if activated else 'deactivated'}: {reason}",
-                ))
+                asyncio.create_task(
+                    notifier.notify_risk_event(
+                        event_type="KILL_SWITCH",
+                        message=f"Kill switch {'activated' if activated else 'deactivated'}: {reason}",
+                    )
+                )
         except (ImportError, Exception):
             pass
 
