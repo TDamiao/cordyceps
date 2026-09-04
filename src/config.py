@@ -62,6 +62,21 @@ class Settings(BaseSettings):
     scan_interval_seconds: float = Field(default=60.0, ge=1, le=3600)
     fee_fallback_rate: float = Field(default=0.072, gt=0, le=1)
 
+    # --- Favorite Compounding Strategy ---
+    enable_favorite_strategy: bool = Field(default=False)
+    min_favorite_probability: float = Field(default=0.90, ge=0.80, le=0.99)
+    min_favorite_price: float = Field(default=0.85, ge=0.70, le=0.95)
+    max_favorite_price: float = Field(default=0.98, ge=0.90, le=0.99)
+    min_favorite_size_usd: float = Field(default=5.0, gt=0)
+    favorite_take_profit: float = Field(default=0.97, ge=0.90, le=0.99)
+    favorite_stop_loss: float = Field(default=0.80, ge=0.50, le=0.90)
+    max_favorite_exposure_pct: float = Field(default=0.30, ge=0.10, le=0.50)
+    favorite_kelly_fraction: float = Field(default=0.25, ge=0.05, le=1.0)
+
+    # --- Telegram Notifications ---
+    telegram_bot_token: str = Field(default="")
+    telegram_chat_id: str = Field(default="")
+
     private_key: str = ""
     proxy_address: str = ""
     polymarket_api_key: str = Field(default="", validation_alias="CLOB_API_KEY")
@@ -91,6 +106,15 @@ class Settings(BaseSettings):
         "simulated_latency_ms",
         "market_limit",
         "scan_interval_seconds",
+        "enable_favorite_strategy",
+        "min_favorite_probability",
+        "min_favorite_price",
+        "max_favorite_price",
+        "min_favorite_size_usd",
+        "favorite_take_profit",
+        "favorite_stop_loss",
+        "max_favorite_exposure_pct",
+        "favorite_kelly_fraction",
     )
 
     @field_validator("private_key")
